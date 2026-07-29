@@ -562,7 +562,12 @@ S_M1_Menu_t menu_Apps =
 
 const S_M1_Menu_t menu_Main =
 {
-#if defined(M1_APP_BADUSB_ENABLE) && defined(M1_APP_GAMES_ENABLE) && defined(M1_APP_APPS_ENABLE)
+#if defined(M1OS_BAREBONES)
+    /* Modular runtime: core-only top level. Sub-GHz/RFID/NFC/IR/GPIO/BadUSB/
+     * Games/Tools become SD apps installed from the qM Studio App Catalog. */
+    "Main Menu", NULL, NULL, NULL, 4, 0, NULL, NULL,
+    {&menu_Wifi, &menu_Bluetooth, &menu_Apps, &menu_Settings}
+#elif defined(M1_APP_BADUSB_ENABLE) && defined(M1_APP_GAMES_ENABLE) && defined(M1_APP_APPS_ENABLE)
     "Main Menu", NULL, NULL, NULL, 12, 0, NULL, NULL,
     {&menu_Sub_GHz, &menu_125KHz_RFID, &menu_NFC, &menu_Infrared, &menu_GPIO, &menu_Wifi, &menu_Bluetooth, &menu_BadUSB, &menu_Games, &menu_Apps, &menu_Tools, &menu_Settings}
 #elif defined(M1_APP_BADUSB_ENABLE)

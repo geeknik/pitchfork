@@ -85,6 +85,13 @@ extern void assert_failed();
 #define M1_APP_GAMES_ENABLE            /* Enable built-in Games menu */
 #define M1_APP_APPS_ENABLE             /* Enable Apps menu (ELF loader from SD card) */
 
+/* M1OS modular runtime: strip the top-level menu to the CORE only — WiFi,
+ * Bluetooth, Apps (SD .m1app loader), Settings. Everything else (Sub-GHz, RFID,
+ * NFC, Infrared, GPIO, BadUSB, Games, Tools) ships as downloadable apps via the
+ * qM Studio App Catalog instead of being baked into the firmware menu. WiFi and
+ * Bluetooth stay core because their connect-on-boot must run outside any app. */
+#define M1OS_BAREBONES
+
 /*============================================================================*/
 /*			R E C O V E R Y   F I R M W A R E   B U I L D					*/
 /*============================================================================*/
