@@ -433,8 +433,16 @@ S_M1_Menu_t menu_Wifi_Hotspot =
 
 S_M1_Menu_t menu_Wifi =
 {
+#if defined(M1OS_BAREBONES)
+    /* Core WiFi only: scan, connect/saved, hotspot, status, disconnect. The
+     * offensive tools (deauth, handshake, beacon, probe flood, karma, monitor,
+     * captive, 802.15.4) ship as downloadable apps, not baked into the FW. */
+    "Wifi", menu_wifi_init, NULL, NULL, 5, 0, menu_m1_icon_wifi, NULL,
+    {&menu_Wifi_Scan_AP, &menu_Wifi_Config, &menu_Wifi_Hotspot, &menu_Wifi_Status, &menu_Wifi_Disconnect}
+#else
     "Wifi", menu_wifi_init, NULL, NULL, 14, 0, menu_m1_icon_wifi, NULL,
     {&menu_Wifi_Scan_AP, &menu_Wifi_Deauth, &menu_Wifi_Handshake, &menu_Wifi_Beacon, &menu_Wifi_ProbeFlood, &menu_Wifi_Karma, &menu_Wifi_Monitor, &menu_Wifi_Captive, &menu_802154_Scan, &menu_802154_Flood, &menu_Wifi_Config, &menu_Wifi_Hotspot, &menu_Wifi_Status, &menu_Wifi_Disconnect}
+#endif
 };
 #else
 S_M1_Menu_t menu_Wifi =
@@ -486,8 +494,15 @@ S_M1_Menu_t menu_Bluetooth_BTName =
 
 S_M1_Menu_t menu_Bluetooth =
 {
+#if defined(M1OS_BAREBONES)
+    /* Core Bluetooth only: scan, saved devices, info. Spam / advertise / Bad-BT
+     * ship as downloadable apps. */
+    "Bluetooth", menu_bluetooth_init, NULL, NULL, 3, 0, menu_m1_icon_bluetooth, NULL,
+    {&menu_Bluetooth_Scan, &menu_Bluetooth_Saved, &menu_Bluetooth_Info}
+#else
     "Bluetooth", menu_bluetooth_init, NULL, NULL, 7, 0, menu_m1_icon_bluetooth, NULL,
     {&menu_Bluetooth_Scan, &menu_Bluetooth_Spam, &menu_Bluetooth_Saved, &menu_Bluetooth_Advertise, &menu_Bluetooth_BadBT, &menu_Bluetooth_BTName, &menu_Bluetooth_Info}
+#endif
 };
 #else
 S_M1_Menu_t menu_Bluetooth =
