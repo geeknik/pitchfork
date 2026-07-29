@@ -60,8 +60,10 @@
 
 #define TAG "API"
 
-/* Maximum number of exported API symbols */
-#define API_MAX_SYMBOLS  256
+/* Maximum number of exported API symbols. Headroom above the ~235 currently
+ * populated; the grouped-dispatch umbrella calls keep future domain expansion
+ * from needing one symbol per operation, so this need not grow much further. */
+#define API_MAX_SYMBOLS  384
 
 /********************* T Y P E S *********************************************/
 
@@ -578,7 +580,8 @@ void m1_app_api_init(void)
     /* Compute hashes and populate the table */
     for (i = 0; i < num_entries; i++)
     {
-        s_api_table[i].hash = elf_gnu_hash(entries[i].name);
+        s_api_table[i].hash    = elf_gnu_hash(entries[i].name);
+        s_api_table[i].name    = entries[i].name;   /* retained for collision-safe resolve */
         s_api_table[i].address = entries[i].address;
     }
 

@@ -458,7 +458,17 @@ static void *elf_resolve_symbol(const char *name, const m1_api_interface_t *api)
         int mid = lo + (hi - lo) / 2;
         if (api->table[mid].hash == hash)
         {
-            return api->table[mid].address;
+            /* Confirm by name. Equal-hash entries sort together, so scan the
+             * whole collision run in both directions: a hash collision must
+             * resolve to the correctly-named symbol, or to nothing at all. */
+            int i;
+            for (i = mid; i >= 0 && api->table[i].hash == hash; i--)
+                if (strcmp(api->table[i].name, name) == 0)
+                    return api->table[i].address;
+            for (i = mid + 1; i < (int)api->count && api->table[i].hash == hash; i++)
+                if (strcmp(api->table[i].name, name) == 0)
+                    return api->table[i].address;
+            return NULL;   /* hash matched but no name did — genuine miss */
         }
         else if (api->table[mid].hash < hash)
         {

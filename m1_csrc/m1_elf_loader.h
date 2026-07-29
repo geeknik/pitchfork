@@ -131,10 +131,13 @@ typedef struct {
     bool           loaded;
 } elf_app_t;
 
-/* API symbol entry (for resolution) */
+/* API symbol entry (for resolution). The name is retained so a hash match can be
+ * confirmed by string compare — a hash collision must never silently mis-resolve
+ * to the wrong function, and that risk grows as the table fills. */
 typedef struct {
-    uint32_t hash;
-    void    *address;
+    uint32_t    hash;
+    const char *name;
+    void       *address;
 } m1_api_sym_t;
 
 /* API interface for symbol resolution */
