@@ -206,7 +206,10 @@ int m1_link_request_msg(uint8_t type, uint16_t msg_id,
      *   -2 = HAL SPI error
      *    0 = clocked OK but ESP returned IDLE (didn't answer the request)
      *   >0 = got a frame back immediately */
-    M1_LOG_I(M1_LOGDB_TAG, "m1link REQ id=0x%04X plen=%u hs=%d send_r=%d\r\n",
+    /* DEBUG, not INFO: this fires on EVERY SPI transaction, so the ~20Hz
+     * qmon-relay poll alone floods the console (~40 lines/s) and buries real
+     * events. Kept at debug level so it's available when tracing the link. */
+    M1_LOG_D(M1_LOGDB_TAG, "m1link REQ id=0x%04X plen=%u hs=%d send_r=%d\r\n",
              msg_id, plen, (int)handshake_high(), r);
 
     /* --- Receive phase: poll + reassemble the matching response. --- */
@@ -250,7 +253,7 @@ int m1_link_request_msg(uint8_t type, uint16_t msg_id,
 out:
     M1L_BC_STAGE(0xFF);           /* breadcrumb: request finished cleanly */
     m1_link_bc(12, (uint32_t)rc); /* BKP12R = rc */
-    M1_LOG_I(M1_LOGDB_TAG, "m1link DONE id=0x%04X rc=%d\r\n", msg_id, rc);
+    M1_LOG_D(M1_LOGDB_TAG, "m1link DONE id=0x%04X rc=%d\r\n", msg_id, rc);
     if (s_link_mutex) xSemaphoreGive(s_link_mutex);
     return rc;
 }
