@@ -101,6 +101,25 @@ void m1_app_manager_init(void)
     M1_LOG_I(TAG, "App manager initialized");
 }
 
+/*============================================================================*/
+/* Public app enumeration for RPC (qM App Catalog). Single-threaded RPC dispatch
+ * assumption; a concurrent on-device Apps browser is a rare edge (worst case a
+ * momentarily inconsistent list, never a crash). */
+/*============================================================================*/
+uint16_t m1_app_manager_scan(void)
+{
+    return apps_scan_directory();   /* also sets s_app_count */
+}
+
+bool m1_app_manager_get(uint16_t idx, const char **filename, const char **name)
+{
+    if (idx >= s_app_count)
+        return false;
+    if (filename) *filename = s_app_list[idx].filename;
+    if (name)     *name     = s_app_list[idx].display_name;
+    return true;
+}
+
 
 /*============================================================================*/
 /*

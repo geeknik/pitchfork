@@ -68,6 +68,7 @@
 #define RPC_CMD_SD_MOUNT        0x3C
 #define RPC_CMD_FILE_RENAME     0x3D    /* payload: old-path '\0' new-path (both 0:/...); rename or move */
 #define RPC_CMD_FILE_DELETE_TREE 0x3E   /* payload: path — recursive delete (folder + all contents) */
+#define RPC_CMD_APP_LIST         0x3F   /* list installed .m1app apps: resp = [count] then per app [nlen][name][flen][filename] */
 
 /* ── Firmware Commands (0x40–0x4F) ── */
 #define RPC_CMD_FW_INFO         0x40

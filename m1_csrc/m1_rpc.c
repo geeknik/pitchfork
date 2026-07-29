@@ -34,6 +34,7 @@
 #include "m1_tasks.h"
 #include "m1_sdcard.h"
 #include "m1_file_browser.h"
+#include "m1_app_manager.h"
 #include "m1_fw_update_bl.h"
 #include "m1_lcd.h"
 #include "m1_watchdog.h"
@@ -290,6 +291,7 @@ static void rpc_handle_gpio_power(const S_RPC_Frame *f);
 static void rpc_handle_i2c_scan(const S_RPC_Frame *f);
 static void rpc_handle_file_list(const S_RPC_Frame *f);
 static void rpc_handle_file_read(const S_RPC_Frame *f);
+static void rpc_handle_app_list(const S_RPC_Frame *f);
 static void rpc_handle_file_write_start(const S_RPC_Frame *f);
 static void rpc_handle_file_write_data(const S_RPC_Frame *f);
 static void rpc_handle_file_write_finish(const S_RPC_Frame *f);
@@ -764,6 +766,7 @@ static void rpc_dispatch_frame(const S_RPC_Frame *frame)
     /* File — read-only operations stay inline */
     case RPC_CMD_FILE_LIST:        rpc_handle_file_list(frame);        break;
     case RPC_CMD_FILE_READ:        rpc_handle_file_read(frame);        break;
+    case RPC_CMD_APP_LIST:         rpc_handle_app_list(frame);         break;
 
     /* File — write operations deferred to rpc_task.
      * The Usb2SerTask has limited stack (8KB) and SD card writes can
@@ -1503,6 +1506,48 @@ static void rpc_build_sd_path(char *out, size_t out_size,
  *   type: 0=file, 1=directory
  *   Terminated by type=0xFF
  */
+/* List installed .m1app apps on the SD card for the qM App Catalog.
+ * Response: [count:1] then per app [nlen:1][display name][flen:1][filename].
+ * Names/filenames are each <= 40 bytes, up to 16 apps, so it fits one frame. */
+static void rpc_handle_app_list(const S_RPC_Frame *f)
+{
+    static uint8_t resp[512];
+
+    if (!m1_sd_detected())
+    {
+        m1_rpc_send_nack(f->seq, RPC_ERR_SD_NOT_READY);
+        return;
+    }
+
+    uint16_t count = m1_app_manager_scan();
+    uint16_t rl = 0;
+    resp[rl++] = (uint8_t)count;
+
+    for (uint16_t i = 0; i < count; i++)
+    {
+        const char *fname = NULL, *name = NULL;
+        if (!m1_app_manager_get(i, &fname, &name))
+            break;
+        if (name  == NULL) name  = "";
+        if (fname == NULL) fname = "";
+
+        uint8_t nl = (uint8_t)strnlen(name,  39);
+        uint8_t fl = (uint8_t)strnlen(fname, 39);
+
+        /* Stop cleanly if the next record would overflow the frame. */
+        if ((uint32_t)rl + 2u + nl + fl > sizeof(resp))
+        {
+            resp[0] = (uint8_t)i;   /* report how many we actually packed */
+            break;
+        }
+
+        resp[rl++] = nl; memcpy(&resp[rl], name,  nl); rl += nl;
+        resp[rl++] = fl; memcpy(&resp[rl], fname, fl); rl += fl;
+    }
+
+    m1_rpc_send_resp(RPC_CMD_APP_LIST, f->seq, resp, rl);
+}
+
 static void rpc_handle_file_list(const S_RPC_Frame *f)
 {
     /* Large buffers are static to avoid stack overflow — the USB CDC

@@ -69,7 +69,7 @@ typedef struct {
 #define FW_IMAGE_CRC_SIZE				4 // 4 bytes = 32 bits
 
 #define FW_VERSION_MAJOR   			1
-#define FW_VERSION_MINOR   			0
+#define FW_VERSION_MINOR   			1
 #define FW_VERSION_BUILD   			0
 #define FW_VERSION_RC   			0
 
