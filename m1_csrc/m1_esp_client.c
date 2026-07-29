@@ -5,6 +5,7 @@
 #include "m1_esp_client.h"
 #include "m1_link.h"
 #include "m1_qmon_relay.h"
+#include "m1_log_debug.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include "semphr.h"
@@ -269,7 +270,14 @@ int m1_esp_client_zb_sniff_get(uint8_t *buf, uint16_t cap)
 
 int m1_esp_client_wifi_scan(uint8_t *buf, uint16_t buf_size)
 {
-    return esp_call_to(M1ESP_WIFI_SCAN, NULL, 0, buf, buf_size, ESP_SCAN_TIMEOUT_MS);
+    int n = esp_call_to(M1ESP_WIFI_SCAN, NULL, 0, buf, buf_size, ESP_SCAN_TIMEOUT_MS);
+    /* Diagnostic (visible in the M1 UART capture): pinpoints where a scan fails.
+     *   n == 0  -> RPC timeout: ESP never returned the reply (transport/scan hang)
+     *   n <  0  -> NAK/link/parse error (see esp_call_to return codes)
+     *   n >= 2  -> reply received; count = APs the ESP actually found */
+    int count = (n >= 2) ? (buf[0] | (buf[1] << 8)) : -1;
+    M1_LOG_I("WIFISCAN", "scan: rpc n=%d count=%d\r\n", n, count);
+    return n;
 }
 
 bool m1_esp_client_wifi_connect(const char *ssid, const char *pwd, uint8_t ip_out[4])
