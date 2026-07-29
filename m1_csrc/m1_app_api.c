@@ -27,6 +27,7 @@
 #include "main.h"
 #include "m1_elf_loader.h"
 #include "m1_app_api.h"
+#include "m1_app_syscall.h"
 #include "m1_games.h"
 #include "m1_log_debug.h"
 #include "u8g2.h"
@@ -210,6 +211,24 @@ void m1_app_tracked_free_all(void)
 }
 
 /*
+ * System/info umbrella — apps call "m1_sys_call". See m1_app_syscall.h for the
+ * operation codes and the additive-ABI rules. This is the reference for the
+ * grouped-dispatch pattern that future domains (NFC, Sub-GHz, RFID, ...) follow
+ * so a wide surface costs one export symbol per domain, not one per operation.
+ */
+static int32_t m1_sys_call(uint32_t op, void *args)
+{
+    (void)args;
+    switch (op)
+    {
+        case M1_SYS_OP_API_LEVEL: return (int32_t)M1_APP_API_VERSION;
+        case M1_SYS_OP_HEAP_FREE: return (int32_t)xPortGetFreeHeapSize();
+        case M1_SYS_OP_UPTIME_MS: return (int32_t)HAL_GetTick();
+        default:                  return M1_SYS_ERR_BAD_OP;
+    }
+}
+
+/*
  * Wrapper for vTaskDelay in ms
  */
 static void m1app_delay(uint32_t ms)
@@ -323,6 +342,9 @@ void m1_app_api_init(void)
          * on exit/kill. Both header-prepend and header-strip stay paired. */
         { "pvPortMalloc",      (void *)m1app_malloc },
         { "vPortFree",         (void *)m1app_free },
+
+        /* ===== Grouped syscall umbrellas (see m1_app_syscall.h) ===== */
+        { "m1_sys_call",       (void *)m1_sys_call },
 
         /* ===== Input ===== */
         { "game_poll_button",  (void *)game_poll_button },

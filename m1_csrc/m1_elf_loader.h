@@ -96,7 +96,11 @@ typedef struct {
 
 /* M1 App Manifest (embedded in .m1meta section) */
 #define M1_APP_MANIFEST_MAGIC   0x4D314150  /* "M1AP" */
-#define M1_APP_API_VERSION      2
+/* App-API level. ADDITIVE ONLY — bump when exporting a new symbol or a new
+ * grouped-syscall op (see m1_app_syscall.h). Old apps declaring a lower level in
+ * their .m1meta still load; an app needing a newer capability declares this
+ * level as its minimum. v3: added the m1_sys_call grouped-dispatch umbrella. */
+#define M1_APP_API_VERSION      3
 
 typedef struct __attribute__((packed)) {
     uint32_t magic;
