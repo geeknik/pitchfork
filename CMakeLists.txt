@@ -35,19 +35,16 @@ if(RESTORE_HOST)
 endif()
 
 # Set the project name + C3 revision. Recovery FW uses its own version line
-# (C3.<maj>.<min>, see M1_RECOVERY_VER_* in m1_fw_update_bl.h); the working FW
-# uses the single-integer C3.N line. Keep M1_C3_REVISION here in sync with the
-# matching value in m1_fw_update_bl.h.
+# (C3.<maj>.<min>, see M1_RECOVERY_VER_* in m1_fw_update_bl.h). The working FW
+# uses the n.n.n.n version from FW_VERSION_* in m1_fw_update_bl.h.
 if(RECOVERY)
     if(RESTORE_HOST)
         set(CMAKE_PROJECT_NAME M1_RestoreHost_C3.1.0)
     else()
         set(CMAKE_PROJECT_NAME M1_Recovery_C3.1.0)
     endif()
-    set(M1_C3_REVISION 1)
 else()
-    set(CMAKE_PROJECT_NAME M1_v0800_C3.148)
-    set(M1_C3_REVISION 148)
+    set(CMAKE_PROJECT_NAME M1OS_1.0.0.0)
 endif()
 
 # Include toolchain file
@@ -185,11 +182,10 @@ add_custom_command(
 add_custom_command(
     TARGET ${CMAKE_PROJECT_NAME}
     POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E echo "Injecting CRC + C3 metadata into ${CMAKE_PROJECT_NAME}_wCRC.bin"
+    COMMAND ${CMAKE_COMMAND} -E echo "Injecting CRC + build metadata into ${CMAKE_PROJECT_NAME}_wCRC.bin"
     COMMAND ${Python3_EXECUTABLE}
         ${CMAKE_SOURCE_DIR}/tools/append_crc32.py
         ${TARGET_BIN}
         --output ${CMAKE_BINARY_DIR}/${CMAKE_PROJECT_NAME}_wCRC.bin
-        --c3-revision ${M1_C3_REVISION}
         --verbose
 )

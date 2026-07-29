@@ -1005,7 +1005,7 @@ static void rpc_handle_get_device_info(const S_RPC_Frame *f)
     info.ism_band_region = m1_fw_config.ism_band_region;
     info.op_mode         = (uint8_t)m1_device_stat.op_mode;
     info.southpaw_mode   = m1_southpaw_mode;
-    info.c3_revision     = M1_C3_REVISION;
+    info.c3_revision     = 0;   /* revision retired; kept as a reserved wire byte */
 
     /* Firmware variant so qMonstatek can tell Restore Host from plain Recovery
      * (both share the C3.1.0 version line). */

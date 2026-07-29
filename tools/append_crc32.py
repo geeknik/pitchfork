@@ -146,27 +146,25 @@ def main():
     struct.pack_into('<I', data, CRC_EXT_SIZE_OFFSET, fw_image_size)
     struct.pack_into('<I', data, CRC_EXT_CRC_OFFSET, crc_value)
 
-    # Inject C3 build metadata if revision > 0
-    if args.c3_revision > 0:
-        # Ensure file is large enough for C3 metadata (magic + rev + 20-byte date string)
-        c3_min_size = C3_META_DATE_OFFSET + 20
-        if len(data) < c3_min_size:
-            data.extend(b'\xFF' * (c3_min_size - len(data)))
+    # Inject build metadata (magic + build date). The revision byte is retired —
+    # it is written as a reserved zero (or whatever --c3-revision passes, default
+    # 0) purely for wire/layout compatibility. The build date is always emitted so
+    # the dual-boot UI can still show when each bank was built.
+    meta_min_size = C3_META_DATE_OFFSET + 20
+    if len(data) < meta_min_size:
+        data.extend(b'\xFF' * (meta_min_size - len(data)))
 
-        # Build timestamp string: "YYYY-MM-DD HH:MM:SS" (19 chars + null, 20 bytes)
-        now = datetime.now()
-        build_ts = now.strftime("%Y-%m-%d %H:%M:%S")  # e.g. "2026-03-12 14:30:15"
-        ts_bytes = build_ts.encode('ascii')[:19].ljust(20, b'\x00')
+    # Build timestamp string: "YYYY-MM-DD HH:MM:SS" (19 chars + null, 20 bytes)
+    now = datetime.now()
+    build_ts = now.strftime("%Y-%m-%d %H:%M:%S")  # e.g. "2026-03-12 14:30:15"
+    ts_bytes = build_ts.encode('ascii')[:19].ljust(20, b'\x00')
 
-        struct.pack_into('<I', data, C3_META_MAGIC_OFFSET, C3_META_MAGIC_VALUE)
-        # Revision in first byte, padding in next 3
-        struct.pack_into('<I', data, C3_META_REV_OFFSET, args.c3_revision & 0xFF)
-        # Date string (20 bytes)
-        data[C3_META_DATE_OFFSET:C3_META_DATE_OFFSET + 20] = ts_bytes
+    struct.pack_into('<I', data, C3_META_MAGIC_OFFSET, C3_META_MAGIC_VALUE)
+    struct.pack_into('<I', data, C3_META_REV_OFFSET, args.c3_revision & 0xFF)
+    data[C3_META_DATE_OFFSET:C3_META_DATE_OFFSET + 20] = ts_bytes
 
-        if args.verbose:
-            print(f"C3 revision:  {args.c3_revision}")
-            print(f"Build date:   {build_ts}")
+    if args.verbose:
+        print(f"Build date:   {build_ts}")
 
     # Pad to word alignment if needed
     pad = len(data) % 4

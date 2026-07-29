@@ -780,8 +780,8 @@ void startup_config_handler(void)
 
 	m1_device_stat.active_bank = bl_get_active_bank();
 
-	M1_LOG_I(M1_LOGDB_TAG, "Device firmware version %d.%d.%d.%d-C3.%d\r\n", m1_device_stat.config.fw_version_major,
-			m1_device_stat.config.fw_version_minor, m1_device_stat.config.fw_version_build, m1_device_stat.config.fw_version_rc, M1_C3_REVISION);
+	M1_LOG_I(M1_LOGDB_TAG, "Device firmware version %d.%d.%d.%d\r\n", m1_device_stat.config.fw_version_major,
+			m1_device_stat.config.fw_version_minor, m1_device_stat.config.fw_version_build, m1_device_stat.config.fw_version_rc);
 } // void startup_config_handler(void)
 
 
@@ -865,10 +865,9 @@ void startup_info_screen_draw(const char *scr_text)
 	u8g2_FirstPage(&m1_u8g2);
 	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
 
-	/* Split into base version + C3 rev on separate lines so the (now 3-digit)
-	 * C3 revision always fits. 0.8.0.0 is the stable Monstatek base. */
+	/* Single n.n.n.n version line; the revision line is retired. */
 	sprintf(ver1, "v%d.%d.%d.%d", m1_device_stat.config.fw_version_major, m1_device_stat.config.fw_version_minor, m1_device_stat.config.fw_version_build, m1_device_stat.config.fw_version_rc);
-	sprintf(ver2, "C3.%d", M1_C3_REVISION);
+	ver2[0] = '\0';
 
 	if ( m1_screen_orientation == M1_ORIENT_PORTRAIT )
 	{
@@ -878,7 +877,7 @@ void startup_info_screen_draw(const char *scr_text)
 
 		u8g2_DrawXBMP(&m1_u8g2, (pw - M1_POWERUP_LOGO_WIDTH) / 2, 12, M1_POWERUP_LOGO_WIDTH, M1_POWERUP_LOGO_HEIGHT, m1_logo_40x32);
 		u8g2_SetFont(&m1_u8g2, M1_POWERUP_LOGO_FONT);
-		sw = u8g2_GetStrWidth(&m1_u8g2, "M1 BY C3"); u8g2_DrawStr(&m1_u8g2, (pw - sw) / 2, 60, "M1 BY C3");
+		sw = u8g2_GetStrWidth(&m1_u8g2, "M1OS"); u8g2_DrawStr(&m1_u8g2, (pw - sw) / 2, 60, "M1OS");
 		u8g2_SetFont(&m1_u8g2, M1_DISP_MAIN_MENU_FONT_N);
 		sw = u8g2_GetStrWidth(&m1_u8g2, ver1);       u8g2_DrawStr(&m1_u8g2, (pw - sw) / 2, 76, ver1);
 		sw = u8g2_GetStrWidth(&m1_u8g2, ver2);       u8g2_DrawStr(&m1_u8g2, (pw - sw) / 2, 88, ver2);
@@ -897,7 +896,7 @@ void startup_info_screen_draw(const char *scr_text)
 		m1_draw_battery_icon(1, 1);
 		u8g2_DrawXBMP(&m1_u8g2, M1_POWERUP_LOGO_LEFT_POS_X, M1_POWERUP_LOGO_TOP_POS_Y, M1_POWERUP_LOGO_WIDTH, M1_POWERUP_LOGO_HEIGHT, m1_logo_40x32);
 		u8g2_SetFont(&m1_u8g2, M1_POWERUP_LOGO_FONT);
-		u8g2_DrawStr(&m1_u8g2, tx, M1_POWERUP_LOGO_TOP_POS_Y + 10, "M1 BY C3");
+		u8g2_DrawStr(&m1_u8g2, tx, M1_POWERUP_LOGO_TOP_POS_Y + 10, "M1OS");
 		u8g2_SetFont(&m1_u8g2, M1_DISP_MAIN_MENU_FONT_N);
 		u8g2_DrawStr(&m1_u8g2, tx, M1_POWERUP_LOGO_TOP_POS_Y + 21, ver1);
 		u8g2_DrawStr(&m1_u8g2, tx, M1_POWERUP_LOGO_TOP_POS_Y + 31, ver2);
