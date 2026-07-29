@@ -262,9 +262,7 @@ int m1_esp_client_zb_sniff_get(uint8_t *buf, uint16_t cap)
 /* A blocking WiFi scan on the ESP (esp_wifi_scan_start(...,true)) sweeps every
  * channel and takes ~3-4s; the 500ms default would time out mid-scan (rc=0 with
  * hs=1/send_r=0). Give it an 8s window. */
-#define ESP_SCAN_TIMEOUT_MS      30000u   /* match the proven native FW scan window
-                                           * (M1_WIFI_AP_SCANNING_TIME) — a full
-                                           * all-channel scan can take well over 8s */
+#define ESP_SCAN_TIMEOUT_MS      8000u
 /* Association + DHCP lease can also take several seconds. */
 #define ESP_CONNECT_TIMEOUT_MS   12000u
 
