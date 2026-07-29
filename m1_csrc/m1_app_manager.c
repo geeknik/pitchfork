@@ -540,6 +540,13 @@ static elf_load_status_t apps_run(const char *path)
     s_run_ctx.task_handle = NULL;
     elf_unload_app(&s_run_ctx.elf);
 
+    /* Free any heap the app itself allocated. elf_unload_app only reclaims the
+     * ELF sections, so without this a normally-exited (and especially a
+     * force-killed) app leaks whatever it malloc'd — which, over many launches,
+     * slowly exhausts the shared system heap. Safe here: the app task has
+     * already stopped, so nothing is touching the tracked list. */
+    m1_app_tracked_free_all();
+
     /* Drain any stale button events */
     xQueueReset(main_q_hdl);
 

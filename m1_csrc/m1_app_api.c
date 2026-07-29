@@ -124,19 +124,87 @@ static u8g2_t *m1app_get_u8g2(void)
 }
 
 /*
- * Wrapper for pvPortMalloc — apps call "m1app_malloc"
+ * Per-app heap tracking.
+ *
+ * Every allocation an app makes through the exported allocator symbols
+ * (m1app_malloc/free, and pvPortMalloc/vPortFree which now resolve here too) is
+ * recorded in an intrusive doubly-linked list. m1_app_tracked_free_all() frees
+ * whatever the app left behind when it exits or is force-killed — elf_unload_app
+ * only reclaims the ELF sections, not the app's own allocations, so without this
+ * a crashing or BACK-killed app slowly leaks the shared system heap across many
+ * launches (the same failure mode root-caused in the classic firmware).
+ *
+ * One app runs at a time, so a single global list suffices. List-pointer edits
+ * happen in a short critical section; pvPortMalloc/vPortFree run outside it.
+ * An 8-byte header (two pointers) preserves the heap's 8-byte alignment.
+ */
+typedef struct app_alloc_hdr {
+    struct app_alloc_hdr *next;
+    struct app_alloc_hdr *prev;
+} app_alloc_hdr_t;
+
+static app_alloc_hdr_t *s_app_alloc_head = NULL;
+
+/*
+ * Tracked allocator — apps call "m1app_malloc" (and "pvPortMalloc").
  */
 static void *m1app_malloc(size_t size)
 {
-    return pvPortMalloc(size);
+    app_alloc_hdr_t *h = pvPortMalloc(sizeof(app_alloc_hdr_t) + size);
+    if (h == NULL)
+        return NULL;
+
+    taskENTER_CRITICAL();
+    h->prev = NULL;
+    h->next = s_app_alloc_head;
+    if (s_app_alloc_head != NULL)
+        s_app_alloc_head->prev = h;
+    s_app_alloc_head = h;
+    taskEXIT_CRITICAL();
+
+    return (void *)(h + 1);
 }
 
 /*
- * Wrapper for vPortFree — apps call "m1app_free"
+ * Tracked free — apps call "m1app_free" (and "vPortFree").
  */
 static void m1app_free(void *ptr)
 {
-    vPortFree(ptr);
+    if (ptr == NULL)
+        return;
+
+    app_alloc_hdr_t *h = (app_alloc_hdr_t *)ptr - 1;
+
+    taskENTER_CRITICAL();
+    if (h->prev != NULL)
+        h->prev->next = h->next;
+    else
+        s_app_alloc_head = h->next;
+    if (h->next != NULL)
+        h->next->prev = h->prev;
+    taskEXIT_CRITICAL();
+
+    vPortFree(h);
+}
+
+/*
+ * Free every allocation the current app left behind. Called by the app manager
+ * once the app task has stopped (normal return or force-kill), so a killed app
+ * cannot leak the system heap. Detaches the list under a critical section, then
+ * frees outside it (vPortFree must not run inside a critical section).
+ */
+void m1_app_tracked_free_all(void)
+{
+    taskENTER_CRITICAL();
+    app_alloc_hdr_t *h = s_app_alloc_head;
+    s_app_alloc_head = NULL;
+    taskEXIT_CRITICAL();
+
+    while (h != NULL) {
+        app_alloc_hdr_t *next = h->next;
+        vPortFree(h);
+        h = next;
+    }
 }
 
 /*
@@ -248,8 +316,11 @@ void m1_app_api_init(void)
         /* ===== Memory management ===== */
         { "m1app_malloc",      (void *)m1app_malloc },
         { "m1app_free",        (void *)m1app_free },
-        { "pvPortMalloc",      (void *)pvPortMalloc },
-        { "vPortFree",         (void *)vPortFree },
+        /* Route raw port allocator symbols through the tracked allocator too, so
+         * an app that links pvPortMalloc/vPortFree directly is also cleaned up
+         * on exit/kill. Both header-prepend and header-strip stay paired. */
+        { "pvPortMalloc",      (void *)m1app_malloc },
+        { "vPortFree",         (void *)m1app_free },
 
         /* ===== Input ===== */
         { "game_poll_button",  (void *)game_poll_button },

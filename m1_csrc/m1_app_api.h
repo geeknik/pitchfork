@@ -21,4 +21,10 @@ void m1_app_api_init(void);
 /* Get the firmware's API interface for symbol resolution */
 const m1_api_interface_t *m1_app_get_api(void);
 
+/* Free every heap allocation the current app made through the exported
+ * allocator symbols (m1app_malloc/free, pvPortMalloc/vPortFree). The app
+ * manager calls this once the app task has stopped — on normal return or
+ * force-kill — so a killed app cannot leak the shared system heap. */
+void m1_app_tracked_free_all(void);
+
 #endif /* M1_APP_API_H_ */
