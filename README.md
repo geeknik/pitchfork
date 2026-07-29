@@ -1,200 +1,71 @@
 <!-- See COPYING.txt for license details. -->
 
-# M1 Enhanced Firmware (C3)
+# M1OS
 
-Enhanced firmware for the [Monstatek M1](https://monstatek.com) multi-tool device, forked from the [original firmware](https://github.com/Monstatek/M1) with significant feature additions, Flipper Zero file compatibility, and stability improvements.
+**A modular app-runtime firmware for the Monstatek M1** (STM32H573 host +
+ESP32-C6 network brain).
+
+Flash the kernel **once**, then run `.m1app` applications from the SD card
+**forever** — no reflash loop for app development. Devs compile an app, users
+drop it on the card (or push it over USB/WiFi) and run it. The menu is
+user-customizable: arrange apps into the positions you want and nest them.
 
 > **This is a community project and is not affiliated with or endorsed by Monstatek.**
 
-> ⚙️ **ESP32 firmware compatibility:** the M1 and its ESP32-C6 co-processor must run matching firmware. See **[COMPATIBILITY.md](COMPATIBILITY.md)** for which ESP32 image goes with which M1 firmware.
+See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full design.
 
-## What's New in C3
+## Status
 
-### Flipper Zero Compatibility
-- Import and use Flipper Zero `.sub`, `.rfid`, `.nfc`, and `.ir` files directly
-- Drop Flipper files onto the SD card and use them on the M1
+**Phase 0 — fork.** This repository is seeded from the fully-bundled
+`m1-firmware` at `v0.8.0.0-C3.148` and is currently **byte-identical** to that
+baseline (a known-good build). No firmware behavior has changed yet — the build
+still reports the C3 line it was forked from.
 
-### Sub-GHz Enhancements
-- **30+ protocol decoders** — Princeton, CAME, Nice Flo, Keeloq, Security+ 2.0, Linear, Holtek, Hormann, Marantec, Somfy, and many more
-- **Spectrum Analyzer** — visual RF spectrum display
-- **RSSI Meter** — real-time signal strength
-- **Frequency Scanner** — find active frequencies
-- **Weather Station** — decode Oregon v2, Acurite, LaCrosse, Infactory sensors
-- **Radio Settings** — adjustable TX power, custom frequency entry
-- **Extended band support** — 150, 200, 250 MHz bands added
+The first Phase-1 task is the versioning-scheme conversion described below,
+followed by the app-ABI foundation.
 
-### NFC Enhancements
-- **Tag Info** — manufacturer lookup, SAK decode, technology identification
-- **T2T Page Dump** — read and display Type 2 Tag memory pages
-- **Clone & Emulate** — copy and replay NFC tags
-- **NFC Fuzzer** — protocol testing tool
-- **MIFARE Classic Crypto1** support
+## Relationship to the classic firmware
 
-### RFID Enhancements
-- **20+ protocol decoders** — HID Generic, Indala, AWID, Pyramid, Paradox, IOProx, FDX-A/B, Viking, Electra, Gallagher, Jablotron, PAC/Stanley, and more
-- **Clone Card** — write to T5577 tags
-- **Erase Tag** — reset T5577 to factory
-- **T5577 Info** — read tag configuration
-- **RFID Fuzzer** — protocol testing tool
-- **Manchester decoder** with carrier auto-detection (ASK/PSK)
+M1OS and `m1-firmware` are **two living products**, developed side by side:
 
-### Infrared
-- **Universal Remote Database** — pre-built remotes for Samsung, LG, Sony, Vizio, Bose, Denon, and more (see [`ir_database/`](ir_database/))
-- **Learn & Save** — record IR signals and save to SD card
-- **Import** Flipper Zero `.ir` files
+- [`m1-firmware`](https://github.com/bedge117/M1) (`v0.8.0.0-C3.N`) — the
+  fully-bundled firmware, unchanged. Its feature set (Sub-GHz, NFC, RFID, IR,
+  BadUSB, WiFi/BT, games) is the pool M1OS draws from as apps.
+- **M1OS** (`n.n.n.n`) — this modular app runtime.
 
-### BadUSB
-- **DuckyScript interpreter** — run keystroke injection scripts from SD card
-- Supports `STRING`, `DELAY`, `GUI`, `CTRL`, `ALT`, `SHIFT`, key combos, and `REPEAT`
-- Place `.txt` scripts in `BadUSB/` on the SD card
+They share one ESP32-C6 brain firmware and one app SDK
+([`m1-sdk`](https://github.com/bedge117/m1-sdk)), and never collide: separate
+repos, release streams, version schemes, and desktop companions. The desktop
+companion for M1OS is **qMonstatek Studio**.
 
-### Bad-BT (Bluetooth)
-- **Wireless DuckyScript** — same scripting as BadUSB but over Bluetooth HID
-- Pairs with target device wirelessly, no cable needed
+## Versioning — `n.n.n.n`, tied to the app ABI
 
-> **Note:** Bad-BT is under active development and may not work reliably on all target devices. Bluetooth pairing and keystroke delivery depend on the target's BLE HID support.
+| Digit  | Bumps when                                | App impact                                   |
+|--------|-------------------------------------------|----------------------------------------------|
+| MAJOR  | ABI break (a syscall removed/changed)     | old apps may break — rare, avoided           |
+| MINOR  | ABI addition (new syscalls, API level ++) | old apps fine; new apps may need this kernel |
+| PATCH  | kernel bug fix, no ABI change             | none                                         |
+| BUILD  | incremental dev build                     | none                                         |
 
-### External Apps
-- **ELF app loader** — load and run third-party apps from SD card
-- Browse and launch `.m1app` files from the Apps menu
-- Download ready-to-use apps and the App SDK at **[m1-sdk](https://github.com/bedge117/m1-sdk)**
-
-### Games
-- Snake, Tetris, T-Rex Runner, Pong, Dice — built-in games accessible from the menu
-
-### WiFi
-- **Scan** — discover nearby access points
-- **Connect** — join networks with password entry
-- **Saved Networks** — manage stored WiFi credentials
-- **Status** — view connection state, IP address, signal strength
-
-### NFC/RFID Field Detector
-- Detect external 13.56 MHz NFC reader fields and ~125 kHz RFID reader fields
-- Useful for identifying hidden readers
-
-### Bluetooth Device Manager
-- Scan, save, and manage BLE devices
-- View device info and connection details
-
-### Dual Boot
-- Two firmware banks with safe boot validation
-- Swap between banks from the menu or via the companion app
-- CRC verification before boot — falls back to working bank on corruption
-
-### Other Improvements
-- **RPC protocol** for [qMonstatek](https://github.com/bedge117/qMonstatek) companion app communication
-- **Settings persistence** — LCD brightness, southpaw mode, preferences saved to SD card
-- **Southpaw mode** — swap left/right button functions
-- **Safe NMI handler** — proper ECC fault recovery instead of hard fault
-- **Watchdog improvements** — task-level suspend/resume for long operations
-
-## Companion App
-
-**[qMonstatek](https://github.com/bedge117/qMonstatek)** — Desktop companion app for Windows. Connect your M1 via USB to:
-
-- View device info, battery status, firmware version
-- Flash firmware updates over USB
-- Flash via DFU mode (works with stock firmware)
-- Mirror the M1's screen on your PC
-- Browse and manage SD card files
-- Manage WiFi networks
-- Update the ESP32 coprocessor firmware
-
-Download the latest release from the [qMonstatek releases page](https://github.com/bedge117/qMonstatek/releases).
-
-## IR Remote Database
-
-The [`ir_database/`](ir_database/) directory contains pre-built infrared remote files for popular devices. Copy them to `IR/` on the M1's SD card to use with the Universal Remote feature.
-
-Includes remotes for: Samsung, LG, Sony, Philips, Panasonic, Vizio, TCL, Hisense, Toshiba, Sharp, Bose, Denon, and universal power codes.
-
-All files use the Flipper Zero `.ir` format — you can also use IR files from the [Flipper IRDB](https://github.com/Lucaslhm/Flipper-IRDB) community database.
+A dev reading `M1OS 1.3.x` knows exactly what app API level they can rely on.
 
 ## Hardware
 
-- **MCU:** STM32H573VIT6 (Cortex-M33, 250 MHz, 2 MB dual-bank flash, 640 KB RAM)
-- **Display:** 128x64 monochrome (ST7586s)
-- **WiFi/BT:** ESP32-C6 coprocessor (SPI AT interface)
-- **RF:** Si4463 sub-GHz transceiver (300–928 MHz)
+- **MCU:** STM32H573VIT6 (Cortex-M33, 2 MB dual-bank flash)
+- **Display:** 128x64 monochrome
+- **WiFi/BT/802.15.4:** ESP32-C6 coprocessor (SPI link)
+- **RF:** Si4463 sub-GHz transceiver
 - **NFC:** ST25R3916 (13.56 MHz)
-- **RFID:** 125 kHz ASK/PSK reader with T5577 write support
-- **IR:** TSOP38238 receiver + IR LED transmitter
-- **USB:** USB-C (CDC + MSC composite)
-- **Storage:** microSD card
-- **Hardware revision:** 2.x
+- **RFID:** 125 kHz ASK/PSK reader with T5577 write
+- **IR:** receiver + transmitter
+- **Storage:** microSD card (required for apps and menu customization)
 
-## Building
+## Open-device guarantee
 
-### Prerequisites
-
-- **STM32CubeIDE 1.17+** (recommended), or
-- **ARM GCC 14.2+** with CMake and Ninja
-- **Python 3** (for post-build CRC injection)
-
-### Build with CMake
-
-```bash
-# Configure
-cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-
-# Build
-cmake --build build
-
-# Post-build: inject CRC and C3 metadata
-python tools/append_crc32.py build/M1_v0800_C3.1.bin \
-    --output build/M1_v0800_C3.1_wCRC.bin \
-    --c3-revision 1 --verbose
-```
-
-### Build with STM32CubeIDE
-
-Open the project directory in STM32CubeIDE and build.
-
-### Build with Make (Linux)
-
-```bash
-make
-```
-
-Output: `./artifacts/`
-
-## Flashing
-
-### Via qMonstatek (recommended)
-Connect via USB and use the Firmware Update page in [qMonstatek](https://github.com/bedge117/qMonstatek).
-
-### Via DFU Mode (recovery / first install)
-1. Power off the M1 (Settings > Power > Power Off > Right Button)
-2. Hold **Up + OK** for 5 seconds to enter DFU mode (screen stays dark)
-3. Connect via USB-C
-4. Use the DFU Flash page in [qMonstatek](https://github.com/bedge117/qMonstatek)
-
-To exit DFU mode without flashing, hold **Right + Back** to reboot.
-
-### Via SWD
-Use an ST-Link or J-Link debugger with STM32CubeIDE or OpenOCD.
-
-## SD Card Layout
-
-```
-0:/
-├── BadUSB/          DuckyScript .txt files
-├── IR/              Infrared remote .ir files (see ir_database/)
-│   └── Learned/     IR signals recorded by the M1
-├── NFC/             NFC tag .nfc files
-├── RFID/            RFID tag .rfid files
-├── SubGHz/          Sub-GHz signal .sub files
-├── apps/            External .m1app applications
-├── settings.ini     M1 settings (auto-generated)
-└── wifi_cred.ini    Saved WiFi credentials (auto-generated)
-```
-
-## Contributing
-
-Contributions are welcome. Please open an issue or pull request.
-
-If you're building a companion app or tool that communicates with the M1, the RPC protocol is implemented in `m1_csrc/m1_rpc.c` and `Core/Src/cli_app.c`.
+M1OS is never locked down. No RDP-2, TZEN, Secure Boot, Flash Encryption, or
+eFuse-enforced signing. The device must always remain flashable, re-flashable,
+and roll-back-able. Any firmware signature is warn-only, never an enforced gate.
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0 — see [COPYING.txt](COPYING.txt) for details.
+GNU General Public License v3.0 — see [COPYING.txt](COPYING.txt).
