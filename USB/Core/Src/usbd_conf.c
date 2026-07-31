@@ -23,6 +23,8 @@
 #include "usbd_core.h"
 #include "usbd_cdc.h" 				/* Include class header file */
 #include "usbd_msc.h"         /* Include class header file */
+#include "usbd_cdc_if.h"
+#include "m1_rpc.h"
 
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
@@ -61,6 +63,14 @@ void HAL_PCD_ResetCallback(PCD_HandleTypeDef *hpcd)
   {
     Error_Handler();
   }
+  /* A host-side reset/re-enumeration ends the previous CDC/RPC session even
+   * though the MCU never rebooted. Drop its buffered transport state before
+   * the new configuration begins. */
+  CDC_RxSessionResetFromISR();
+#ifdef M1_APP_RPC_ENABLE
+  m1_rpc_usb_session_reset_from_isr();
+#endif
+
     /* Set Speed. */
   USBD_LL_SetSpeed((USBD_HandleTypeDef*)hpcd->pData, speed);
   /* Reset Device. */
@@ -74,6 +84,10 @@ void HAL_PCD_ConnectCallback(PCD_HandleTypeDef *hpcd)
 
 void HAL_PCD_DisconnectCallback(PCD_HandleTypeDef *hpcd)
 {
+  CDC_RxSessionResetFromISR();
+#ifdef M1_APP_RPC_ENABLE
+  m1_rpc_usb_session_reset_from_isr();
+#endif
   USBD_LL_DevDisconnected((USBD_HandleTypeDef*)hpcd->pData);
 }
 
@@ -84,6 +98,12 @@ void HAL_PCD_DisconnectCallback(PCD_HandleTypeDef *hpcd)
   */
 void HAL_PCD_SuspendCallback(PCD_HandleTypeDef *hpcd)
 {
+  /* Windows may selectively suspend the idle CDC interface.  Any in-flight
+   * response then has no guaranteed DataIn completion, which otherwise leaves
+   * the RPC transmitter permanently busy and makes the next file upload time
+   * out.  Dropping that incomplete frame is safe: RPC retries requests. */
+  CDC_TxAbortFromISR();
+
   /* Don't override HID-mode sentinel (-2) */
   if (m1_USB_CDC_ready > -2)
     m1_USB_CDC_ready = -1;

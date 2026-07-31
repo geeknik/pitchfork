@@ -27,6 +27,14 @@ static volatile bool s_relay_suspend = false;
  * M1-initiated WiFi connect can refuse to run while a desktop session is live. */
 static volatile bool s_session_active = false;
 
+/* The latest ESP-confirmed client transport bits, plus their timestamp. Keep
+ * this separate from s_session_active: the latter deliberately survives a
+ * momentary SPI collision to protect a real live session, whereas status shown
+ * to the user must never remain true after confirmation has gone stale. */
+static volatile uint8_t s_session_status = 0;
+static volatile TickType_t s_status_confirmed_tick = 0;
+#define M1_QMON_STATUS_FRESH_MS  1000
+
 /* m1_rpc response bytes -> forward to the ESP, which relays to the TCP client. */
 static bool qmon_tcp_tx(const uint8_t *data, uint16_t len)
 {
@@ -44,6 +52,8 @@ static void qmon_relay_task(void *arg)
         if (s_relay_suspend) {           /* paused for an ESP flash */
             if (routed) { m1_rpc_route_to_tcp(false); routed = false; }
             s_session_active = false;
+            s_session_status = 0;
+            s_status_confirmed_tick = 0;
             vTaskDelay(pdMS_TO_TICKS(250));
             continue;
         }
@@ -56,6 +66,8 @@ static void qmon_relay_task(void *arg)
         if (!m1_esp_client_wifi_is_connected() && !m1_ble_direct) {
             if (routed) { m1_rpc_route_to_tcp(false); routed = false; }
             s_session_active = false;
+            s_session_status = 0;
+            s_status_confirmed_tick = 0;
             uint32_t now = xTaskGetTickCount();
             if ((now - last_wifi_poll) >= pdMS_TO_TICKS(3000)) {
                 last_wifi_poll = now;
@@ -76,6 +88,8 @@ static void qmon_relay_task(void *arg)
             continue;
         }
         s_session_active = (connected != 0);
+        s_session_status = connected & (M1_QMON_RELAY_LINK_WIFI | M1_QMON_RELAY_LINK_BLE);
+        s_status_confirmed_tick = xTaskGetTickCount();
 
         /* Route m1_rpc responses to WiFi for the whole connected session, so
          * deferred/slow commands (file ops) also answer over the socket. */
@@ -125,7 +139,11 @@ void m1_qmon_relay_suspend(bool suspend)
 {
 #if M1_QMON_RELAY_ENABLE
     s_relay_suspend = suspend;
-    if (suspend) s_session_active = false;
+    if (suspend) {
+        s_session_active = false;
+        s_session_status = 0;
+        s_status_confirmed_tick = 0;
+    }
 #else
     (void)suspend;
 #endif
@@ -137,5 +155,22 @@ bool m1_qmon_relay_session_active(void)
     return s_session_active;
 #else
     return false;
+#endif
+}
+
+uint8_t m1_qmon_relay_session_status(void)
+{
+#if M1_QMON_RELAY_ENABLE
+    if (!s_session_active)
+        return 0;
+
+    TickType_t confirmed = s_status_confirmed_tick;
+    if (confirmed == 0 ||
+        (xTaskGetTickCount() - confirmed) > pdMS_TO_TICKS(M1_QMON_STATUS_FRESH_MS))
+        return 0;
+
+    return s_session_status;
+#else
+    return 0;
 #endif
 }

@@ -247,6 +247,14 @@ void m1_rpc_init(void);
 void m1_rpc_feed(const uint8_t *data, uint16_t len);
 
 /**
+ * @brief  Mark the USB RPC transport as disconnected/reset.
+ *
+ * Called from the USB PCD reset/disconnect ISR. The actual FatFs cleanup is
+ * deferred to the RPC task; this entry point performs only ISR-safe work.
+ */
+void m1_rpc_usb_session_reset_from_isr(void);
+
+/**
  * @brief  Feed received bytes from the WiFi/TCP (mobile) relay into the RPC
  *         parser. Uses a separate parser context from USB so interleaved partial
  *         frames from the two transports can't corrupt each other, and tags the

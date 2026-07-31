@@ -402,13 +402,20 @@ static elf_load_status_t elf_find_manifest(elf_app_t *app)
 
     meta = &app->sections[app->meta_idx];
 
-    if (meta->data == NULL || meta->size < sizeof(m1_app_manifest_t))
+    if (meta->data == NULL || meta->size < M1_APP_MANIFEST_CORE_SIZE)
     {
         M1_LOG_E(TAG, ".m1meta too small (%lu)", (unsigned long)meta->size);
         return ELF_ERR_MANIFEST;
     }
 
-    memcpy(&app->manifest, meta->data, sizeof(m1_app_manifest_t));
+    /* Lenient copy: old apps have only the 40-byte core (no category); newer apps
+     * add category[16]. Zero-fill first so a missing category reads as "" (=Apps). */
+    memset(&app->manifest, 0, sizeof(app->manifest));
+    {
+        uint32_t copy = meta->size < sizeof(m1_app_manifest_t)
+                        ? meta->size : (uint32_t)sizeof(m1_app_manifest_t);
+        memcpy(&app->manifest, meta->data, copy);
+    }
 
     if (app->manifest.magic != M1_APP_MANIFEST_MAGIC)
     {
@@ -422,8 +429,9 @@ static elf_load_status_t elf_find_manifest(elf_app_t *app)
         return ELF_ERR_API_VERSION;
     }
 
-    /* Ensure name is null-terminated */
+    /* Ensure name + category are null-terminated */
     app->manifest.name[sizeof(app->manifest.name) - 1] = '\0';
+    app->manifest.category[sizeof(app->manifest.category) - 1] = '\0';
 
     /* Validate stack size — enforce sane bounds */
     if (app->manifest.stack_size < 256)
@@ -835,6 +843,12 @@ static elf_load_status_t elf_relocate_section(FIL *fp, elf_app_t *app,
  * @retval elf_load_status_t
  */
 /*============================================================================*/
+/* Last FatFS result behind an ELF_ERR_FILE — surfaced on-screen so an intermittent
+ * "File error" self-reports its cause (15=FR_TIMEOUT/held-mutex, 1=FR_DISK_ERR,
+ * 3=FR_NOT_READY, 4=FR_NO_FILE, ...) without needing a UART capture. */
+static uint8_t g_elf_last_ferr = 0;
+uint8_t elf_last_ferr(void) { return g_elf_last_ferr; }
+
 elf_load_status_t elf_load_app(const char *path, elf_app_t *app,
                                 const m1_api_interface_t *api)
 {
@@ -842,6 +856,7 @@ elf_load_status_t elf_load_app(const char *path, elf_app_t *app,
     FRESULT res;
     UINT br;
     elf_load_status_t status;
+    g_elf_last_ferr = 0;
 
     memset(app, 0, sizeof(elf_app_t));
 
@@ -852,6 +867,7 @@ elf_load_status_t elf_load_app(const char *path, elf_app_t *app,
     res = f_open(&fp, path, FA_READ);
     if (res != FR_OK)
     {
+        g_elf_last_ferr = (uint8_t)res;
         M1_LOG_E(TAG, "Cannot open %s (err=%u)", path, res);
         return ELF_ERR_FILE;
     }
@@ -860,7 +876,8 @@ elf_load_status_t elf_load_app(const char *path, elf_app_t *app,
     res = f_read(&fp, &app->ehdr, sizeof(Elf32_Ehdr), &br);
     if (res != FR_OK || br != sizeof(Elf32_Ehdr))
     {
-        M1_LOG_E(TAG, "Read header fail");
+        g_elf_last_ferr = (uint8_t)res;
+        M1_LOG_E(TAG, "Read header fail (err=%u br=%u)", res, (unsigned)br);
         f_close(&fp);
         return ELF_ERR_FILE;
     }

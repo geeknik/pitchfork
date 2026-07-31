@@ -11,6 +11,10 @@
 #define M1_QMON_RELAY_H_
 
 #include <stdbool.h>
+#include <stdint.h>
+
+#define M1_QMON_RELAY_LINK_WIFI  0x01u
+#define M1_QMON_RELAY_LINK_BLE   0x02u
 
 void m1_qmon_relay_init(void);
 
@@ -24,5 +28,10 @@ void m1_qmon_relay_suspend(bool suspend);
  * that would tear down the STA link the desktop session is riding on. Returns
  * false when the relay is compiled out. */
 bool m1_qmon_relay_session_active(void);
+
+/* Return freshly-confirmed active client transport bits. The value is zero if
+ * the ESP has not confirmed its state recently, preventing stale status from
+ * being shown as a live mobile connection. */
+uint8_t m1_qmon_relay_session_status(void);
 
 #endif /* M1_QMON_RELAY_H_ */

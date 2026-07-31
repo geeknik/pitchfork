@@ -13,6 +13,7 @@
 #include <stdio.h>
 
 #define ESP_CALL_TIMEOUT_MS   500
+#define ESP_CALL_MUTEX_GRACE_MS 100
 /* Screen push uses the full default timeout so healthy pushes complete; control
  * starvation is prevented by pacing the WiFi frame interval (m1_rpc.c), not by a
  * short timeout (60/200ms were too short and dropped every frame). */
@@ -52,7 +53,14 @@ static SemaphoreHandle_t s_esp_mtx = NULL;
 static int esp_call_to(uint16_t msg_id, const uint8_t *payload, uint16_t plen,
                        uint8_t *resp_out, uint16_t resp_cap, uint32_t timeout_ms)
 {
-    if (s_esp_mtx) xSemaphoreTake(s_esp_mtx, portMAX_DELAY);
+    /* Never let an abandoned caller make all M1<->C6 operations (including
+     * input relay, BLE status and file work) wait forever. The inner request
+     * already has a timeout; this just bounds time spent waiting behind it. */
+    if (s_esp_mtx && xSemaphoreTake(s_esp_mtx,
+            pdMS_TO_TICKS(timeout_ms + ESP_CALL_MUTEX_GRACE_MS)) != pdTRUE) {
+        M1_LOG_W("esp", "M1-C6 request lock timeout (id=0x%04X)\r\n", msg_id);
+        return -4;
+    }
 
     int ret;
     /* Fragments a large request and reassembles a large response internally. */
@@ -268,14 +276,7 @@ int m1_esp_client_zb_sniff_get(uint8_t *buf, uint16_t cap)
 
 int m1_esp_client_wifi_scan(uint8_t *buf, uint16_t buf_size)
 {
-    int n = esp_call_to(M1ESP_WIFI_SCAN, NULL, 0, buf, buf_size, ESP_SCAN_TIMEOUT_MS);
-    /* Diagnostic (visible in the M1 UART capture): pinpoints where a scan fails.
-     *   n == 0  -> RPC timeout: ESP never returned the reply (transport/scan hang)
-     *   n <  0  -> NAK/link/parse error (see esp_call_to return codes)
-     *   n >= 2  -> reply received; count = APs the ESP actually found */
-    int count = (n >= 2) ? (buf[0] | (buf[1] << 8)) : -1;
-    M1_LOG_I("WIFISCAN", "scan: rpc n=%d count=%d\r\n", n, count);
-    return n;
+    return esp_call_to(M1ESP_WIFI_SCAN, NULL, 0, buf, buf_size, ESP_SCAN_TIMEOUT_MS);
 }
 
 bool m1_esp_client_wifi_connect(const char *ssid, const char *pwd, uint8_t ip_out[4])
@@ -726,7 +727,11 @@ bool m1_esp_client_ble_hid_init(const char *name)
 bool m1_esp_client_ble_hid_deinit(void)
 {
     uint8_t resp[1] = { 0 };
-    int n = esp_call(M1ESP_BLE_HID_DEINIT, NULL, 0, resp, sizeof(resp));
+    /* The C6 acknowledges Bad-BT exit only after GAP has really disconnected
+     * the HID central.  That is deliberately longer than an ordinary control
+     * request; returning early lets the next BLE app collide with the stale
+     * connection. */
+    int n = esp_call_to(M1ESP_BLE_HID_DEINIT, NULL, 0, resp, sizeof(resp), 2200);
     return (n >= 1) && (resp[0] == M1ESP_OK);
 }
 

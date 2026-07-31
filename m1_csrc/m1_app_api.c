@@ -57,6 +57,12 @@
 #include "m1_usb_cdc_msc.h"
 #include "m1_badusb.h"
 
+/* Core ESP readiness flag (defined in esp_app_main.c, declared in esp_app_main.h
+ * which lives outside m1_csrc). Exposed to apps so a ported feature gates on the
+ * same local init-status the core uses (get_esp32_main_init_status) instead of a
+ * live ESP ping. Forward-declared here to avoid pulling in the esp_app_main.h. */
+extern bool get_esp32_main_init_status(void);
+
 /*************************** D E F I N E S ************************************/
 
 #define TAG "API"
@@ -100,6 +106,48 @@ static void api_sort_table(void);
 static uint8_t m1app_display_flush(void)
 {
     return m1_u8g2_nextpage();
+}
+
+/* App-safe directory listing. The raw FatFS FILINFO layout is intentionally
+ * opaque in the SDK so apps do not depend on FatFS configuration internals;
+ * expose only the stable fields a standalone app needs to browse its SD data. */
+typedef struct __attribute__((packed)) {
+    char     name[40];
+    uint32_t size;
+    uint8_t  is_dir;
+} m1app_dirent_t;
+
+static int m1app_dir_list(const char *path, m1app_dirent_t *out, uint16_t max_entries)
+{
+    if (!path || !out || max_entries == 0)
+        return -1;
+
+    DIR dir;
+    FILINFO info;
+    if (f_opendir(&dir, path) != FR_OK)
+        return -1;
+
+    int count = 0;
+    FRESULT res;
+    while (count < max_entries && (res = f_readdir(&dir, &info)) == FR_OK) {
+        if (info.fname[0] == '\0')
+            break;
+        if ((strcmp(info.fname, ".") == 0) || (strcmp(info.fname, "..") == 0))
+            continue;
+
+        memset(&out[count], 0, sizeof(out[count]));
+        size_t name_len = 0;
+        while (name_len < sizeof(out[count].name) - 1 && info.fname[name_len] != '\0') {
+            ++name_len;
+        }
+        memcpy(out[count].name, info.fname, name_len);
+        out[count].name[name_len] = '\0';
+        out[count].size = info.fsize;
+        out[count].is_dir = (info.fattrib & AM_DIR) ? 1u : 0u;
+        count++;
+    }
+    f_closedir(&dir);
+    return res == FR_OK ? count : -1;
 }
 
 /*
@@ -353,6 +401,7 @@ void m1_app_api_init(void)
 
         /* ===== Virtual keyboard ===== */
         { "m1_vkb_get_filename", (void *)m1_vkb_get_filename },
+        { "m1_vkb_get_text",     (void *)m1_vkb_get_text },
         { "m1_vkbs_get_data",    (void *)m1_vkbs_get_data },
 
         /* ===== Audio / Buzzer ===== */
@@ -431,6 +480,7 @@ void m1_app_api_init(void)
         { "f_unlink",   (void *)f_unlink },
         { "f_rename",   (void *)f_rename },
         { "f_stat",     (void *)f_stat },
+        { "m1app_dir_list", (void *)m1app_dir_list },
 
         /* ===== File utilities ===== */
         { "fu_get_filename",             (void *)fu_get_filename },
@@ -544,6 +594,9 @@ void m1_app_api_init(void)
         { "strcmp",     (void *)strcmp },
         { "strncmp",   (void *)strncmp },
         { "strncpy",   (void *)strncpy },
+        /* GCC -Os rewrites snprintf(buf, "constant") into strcpy(), so apps need
+         * it exported even when they never call strcpy directly. */
+        { "strcpy",    (void *)strcpy },
         { "strncat",   (void *)strncat },
         { "strstr",    (void *)strstr },
         { "strchr",    (void *)strchr },
@@ -559,6 +612,9 @@ void m1_app_api_init(void)
          * connect, run BLE, drive the offensive WiFi suite, and peer-link. */
         { "m1_esp_client_ping",            (void *)m1_esp_client_ping },
         { "m1_esp_client_fw_version",      (void *)m1_esp_client_fw_version },
+        /* Local ESP-subsystem init flag — the readiness check the core uses
+         * (get_esp32_main_init_status), NOT a live ping. */
+        { "get_esp32_main_init_status",    (void *)get_esp32_main_init_status },
         /* WiFi station */
         { "m1_esp_client_wifi_scan",       (void *)m1_esp_client_wifi_scan },
         { "m1_esp_client_wifi_connect",    (void *)m1_esp_client_wifi_connect },

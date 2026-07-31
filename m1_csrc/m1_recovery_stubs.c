@@ -18,6 +18,8 @@
  * signatures are unnecessary; globals just provide storage that is never read.
  */
 
+#include <stdint.h>
+
 #ifdef M1_RECOVERY_BUILD
 
 #include "stm32h5xx_hal.h"
@@ -90,6 +92,7 @@ int     loader_port_stm32_init(void *cfg)         { (void)cfg; return -1; }
 #endif /* !M1_RESTORE_HOST */
 
 void    m1_qmon_relay_suspend(bool s)             { (void)s; }
+uint8_t m1_qmon_relay_session_status(void)        { return 0; }
 bool    m1_esp_client_screen_push(const uint8_t *fb, uint16_t len) { (void)fb; (void)len; return false; }
 bool    m1_esp_client_fw_version(char *o, uint16_t c) { (void)o; (void)c; return false; }
 bool    m1_esp_client_beacon_stop(void)           { return false; }

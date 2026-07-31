@@ -45,6 +45,7 @@
 #include "m1_esp_rpc_cfg.h"   /* M1_USE_ESP_RPC */
 #include "m1_esp_client.h"    /* m1_esp_client_fw_version — dynamic ESP version */
 #include "m1_qmon_relay.h"    /* m1_qmon_relay_suspend — pause WiFi relay during flash */
+#include "m1_menu.h"          /* m1_menu_apps_changed — refresh menu after app install */
 #include "esp_loader.h"
 #include "stm32_port.h"
 #include "app_common.h"
@@ -66,10 +67,13 @@
 #define RPC_SCREEN_FPS_MAX      15
 #define RPC_SCREEN_FPS_DEFAULT  10
 
-/* USB CDC TX retry */
-#define RPC_USB_TX_RETRIES      10
-#define RPC_USB_TX_RETRY_MS     2
-#define RPC_USB_TX_DONE_TIMEOUT 20   /* ms to wait for a CDC transfer to complete */
+/* USB CDC TX retry.  CDC takes ownership of the caller's buffer until its
+ * DataIn completion.  The transmitter therefore holds the buffer until it is
+ * really idle; a host that has just resumed from selective suspend can take
+ * noticeably longer than the old 20 ms allowance. */
+#define RPC_USB_TX_RETRIES          3
+#define RPC_USB_TX_RETRY_MS         2
+#define RPC_USB_TX_DONE_TIMEOUT_MS  250U
 
 /* File operation buffer size */
 #define RPC_FILE_CHUNK_SIZE     1024
@@ -105,12 +109,22 @@ typedef struct {
  * suspended) until a reboot. Normal chunk cadence is well under a second. */
 #define RPC_FLASH_STALL_TIMEOUT_MS   10000U
 
+/* A USB disconnect can happen after FILE_WRITE_START but before the host gets
+ * its ACK. Do not retain the FatFs handle indefinitely in that case. */
+#define RPC_FILE_WRITE_STALL_TIMEOUT_MS 15000U
+
 /* File write state */
 typedef struct {
     bool     active;
+    bool     refresh_menu;   /* target changes the app catalog or menu.cfg */
+    bool     last_chunk_valid;
     FIL      file;
     uint32_t total_size;
     uint32_t bytes_written;
+    uint32_t last_activity_tick;
+    uint32_t last_chunk_offset;
+    uint16_t last_chunk_len;
+    uint16_t last_chunk_crc;
 } S_RPC_FileWriteState;
 
 /***************************** V A R I A B L E S ******************************/
@@ -131,6 +145,13 @@ typedef struct {
 
 static S_RPC_Parser s_parser_usb;
 static S_RPC_Parser s_parser_tcp;
+
+/* USB reset/disconnect arrives in the PCD ISR while parsing and FatFs work run
+ * in tasks. Epochs let both tasks observe the reset without touching FatFs or
+ * the large parser frame from interrupt context. */
+static volatile uint32_t s_usb_session_epoch = 0;
+static uint32_t          s_usb_parser_epoch = 0;
+static uint32_t          s_usb_cleanup_epoch = 0;
 
 /* TX frame buffer */
 static uint8_t           s_tx_buf[RPC_MAX_FRAME_SIZE];
@@ -215,11 +236,42 @@ static S_RPC_EspUpdateState s_esp_update;
 /* File write state */
 static S_RPC_FileWriteState s_file_write;
 
-/* Deferred command processing — slow SD-card operations (delete, mkdir, etc.)
- * are copied here and processed in rpc_task instead of inline in the CDC task,
- * so the USB endpoint stays responsive during long FatFs operations. */
+/* Deferred command processing — SD-card and other slow operations are copied
+ * here and processed in rpc_task instead of inline in the CDC task, so the USB
+ * endpoint stays responsive during long FatFs operations. */
 static S_RPC_Frame  s_deferred_frame;
+/* Keep the worker copy in static storage.  S_RPC_Frame carries the maximum
+ * 8 KiB RPC payload; placing a second instance on the 16 KiB rpc_task stack
+ * left too little room for an APP_LIST manifest scan and FatFs/HAL call chain. */
+static S_RPC_Frame  s_rpc_work_frame;
 static volatile bool s_deferred_pending = false;
+static SemaphoreHandle_t s_deferred_mutex;
+
+/* Queue exactly one slow command for rpc_task. USB CDC and the TCP relay can
+ * both dispatch frames, so protect the shared slot instead of relying on a
+ * racy check/copy/set sequence. The host receives BUSY and can retry rather
+ * than having one request overwrite another. */
+static void rpc_defer_frame(const S_RPC_Frame *frame)
+{
+    if (s_deferred_mutex == NULL ||
+        xSemaphoreTake(s_deferred_mutex, 0) != pdTRUE)
+    {
+        m1_rpc_send_nack(frame->seq, RPC_ERR_BUSY);
+        return;
+    }
+
+    if (s_deferred_pending)
+    {
+        xSemaphoreGive(s_deferred_mutex);
+        m1_rpc_send_nack(frame->seq, RPC_ERR_BUSY);
+        return;
+    }
+
+    memcpy(&s_deferred_frame, frame, sizeof(S_RPC_Frame));
+    s_deferred_pending = true;
+    xSemaphoreGive(s_deferred_mutex);
+    xTaskNotifyGive(s_rpc_task_hdl);
+}
 
 /* CRC-16 lookup table */
 static const uint16_t s_crc16_table[256] = {
@@ -268,6 +320,7 @@ static void rpc_parse_byte(S_RPC_Parser *p, uint8_t byte);
 static void rpc_dispatch_frame(const S_RPC_Frame *frame);
 
 /* USB CDC TX helper */
+static bool rpc_usb_wait_idle(uint32_t timeout_ms);
 static void rpc_usb_transmit(const uint8_t *data, uint16_t len);
 
 /* Command handlers */
@@ -314,6 +367,7 @@ static void rpc_handle_esp_update_data(const S_RPC_Frame *f);
 static void rpc_handle_esp_update_finish(const S_RPC_Frame *f);
 static void rpc_handle_cli_exec(const S_RPC_Frame *f);
 static void rpc_handle_esp_uart_snoop(const S_RPC_Frame *f);
+static void rpc_abort_file_write(void);
 
 /* Screen streaming helpers */
 static void rpc_send_screen_frame(uint8_t seq, bool to_tcp);
@@ -368,6 +422,25 @@ static uint16_t rpc_crc16_continue(uint16_t crc, const uint8_t *data, uint16_t l
  * @brief  Transmit data over USB CDC with retry logic.
  *         Must be called from task context (not ISR).
  */
+/* Wait until the CDC class no longer owns its caller buffer.  Returning while
+ * TxState is set is not safe: the next rpc_emit() would overwrite s_tx_buf
+ * underneath the USB engine and corrupt the following frame. */
+static bool rpc_usb_wait_idle(uint32_t timeout_ms)
+{
+    uint32_t waited = 0;
+
+    while (CDC_Transmit_Busy())
+    {
+        if (m1_USB_CDC_ready != 0 || waited >= timeout_ms)
+            return false;
+
+        osDelay(1);
+        waited++;
+    }
+
+    return true;
+}
+
 static void rpc_usb_transmit(const uint8_t *data, uint16_t len)
 {
     if (m1_USB_CDC_ready != 0)
@@ -388,11 +461,18 @@ static void rpc_usb_transmit(const uint8_t *data, uint16_t len)
              * the next build overwrites the in-flight frame and the host sees a
              * corrupted frame (CRC mismatch). Bounded so a wedged/unplugged host
              * can't hang us. */
-            uint32_t spins = 0;
-            while (CDC_Transmit_Busy() && spins < RPC_USB_TX_DONE_TIMEOUT)
+            if (!rpc_usb_wait_idle(RPC_USB_TX_DONE_TIMEOUT_MS))
             {
-                osDelay(1);
-                spins++;
+                /* Do not release s_tx_buf while the class still references it.
+                 * A missing DataIn completion leaves TxState stuck after some
+                 * Windows idle/suspend paths.  Drop that incomplete response;
+                 * the request protocol is retry-safe, then retry the exact
+                 * same frame from a clean endpoint. */
+                M1_LOG_W(M1_LOGDB_TAG,
+                         "CDC TX stalled cmd=0x%02X; recovering\r\n", data[1]);
+                CDC_TxAbort();
+                osDelay(RPC_USB_TX_RETRY_MS);
+                continue;
             }
 
             /* Do NOT log successful LOG_MESSAGE (0x64) TX — logging it would
@@ -402,6 +482,18 @@ static void rpc_usb_transmit(const uint8_t *data, uint16_t len)
                 M1_LOG_I(M1_LOGDB_TAG, "TX OK %u bytes cmd=0x%02X\r\n", len, data[1]);
             return;
         }
+
+        /* A stale completion can also present as USBD_BUSY before this frame
+         * begins.  Recover it here instead of silently dropping the response
+         * that the desktop is waiting for. */
+        if (result == USBD_BUSY &&
+            !rpc_usb_wait_idle(RPC_USB_TX_DONE_TIMEOUT_MS))
+        {
+            M1_LOG_W(M1_LOGDB_TAG,
+                     "CDC TX busy-stalled cmd=0x%02X; recovering\r\n", data[1]);
+            CDC_TxAbort();
+        }
+
         M1_LOG_I(M1_LOGDB_TAG, "TX retry %d result=%d\r\n", retry, result);
         osDelay(RPC_USB_TX_RETRY_MS);
     }
@@ -429,6 +521,17 @@ static void rpc_emit(uint8_t cmd, uint8_t seq,
 
     if (xSemaphoreTake(s_tx_mutex, pdMS_TO_TICKS(100)) != pdTRUE)
         return;
+
+    const bool use_tcp = to_tcp && s_tcp_tx_fn;
+
+    /* s_tx_buf is shared by every response.  Before constructing a USB frame,
+     * prove no preceding USB transfer still references it.  This pre-build
+     * guard is the missing half of the previous timeout logic. */
+    if (!use_tcp && !rpc_usb_wait_idle(RPC_USB_TX_DONE_TIMEOUT_MS))
+    {
+        M1_LOG_W(M1_LOGDB_TAG, "CDC stale before TX; recovering\r\n");
+        CDC_TxAbort();
+    }
 
     uint16_t frame_size = RPC_HEADER_SIZE + len + RPC_CRC_SIZE;
     uint16_t idx = 0;
@@ -459,7 +562,7 @@ static void rpc_emit(uint8_t cmd, uint8_t seq,
     s_tx_buf[idx++] = (uint8_t)(crc >> 8);
 
     /* Transmit — route to TCP or USB per the caller's decision */
-    if (to_tcp && s_tcp_tx_fn)
+    if (use_tcp)
         s_tcp_tx_fn(s_tx_buf, frame_size);
     else
         rpc_usb_transmit(s_tx_buf, frame_size);
@@ -579,6 +682,17 @@ static void rpc_send_nack_sub(uint8_t seq, uint8_t error_code, uint8_t sub_error
  */
 void m1_rpc_feed(const uint8_t *data, uint16_t len)
 {
+    /* A USB bus reset can split an RPC frame. Never let the first bytes from a
+     * newly enumerated host complete a frame that belonged to the old host. */
+    uint32_t session_epoch = s_usb_session_epoch;
+    if (s_usb_parser_epoch != session_epoch)
+    {
+        memset(&s_parser_usb, 0, sizeof(s_parser_usb));
+        s_parser_usb.state = RPC_STATE_IDLE;
+        s_parser_usb.src = RPC_SRC_USB;
+        s_usb_parser_epoch = session_epoch;
+    }
+
     M1_LOG_I(M1_LOGDB_TAG, "FEED %u bytes [%02X %02X %02X ...]\r\n",
              len,
              (len > 0) ? data[0] : 0,
@@ -763,15 +877,13 @@ static void rpc_dispatch_frame(const S_RPC_Frame *frame)
     case RPC_CMD_GPIO_RELEASE:    rpc_handle_gpio_release(frame);    break;
     case RPC_CMD_GPIO_POWER:      rpc_handle_gpio_power(frame);      break;
 
-    /* File — read-only operations stay inline */
-    case RPC_CMD_FILE_LIST:        rpc_handle_file_list(frame);        break;
-    case RPC_CMD_FILE_READ:        rpc_handle_file_read(frame);        break;
-    case RPC_CMD_APP_LIST:         rpc_handle_app_list(frame);         break;
-
-    /* File — write operations deferred to rpc_task.
-     * The Usb2SerTask has limited stack (8KB) and SD card writes can
-     * block long enough to cause USB CDC timeouts or watchdog resets.
-     * The rpc_task has 16KB stack and doesn't block the USB endpoint. */
+    /* File operations are deferred to rpc_task. A directory scan, app manifest
+     * scan, or multi-chunk file read is just as capable of stalling the USB CDC
+     * receive task as a write; keeping every FatFs operation off that task also
+     * serializes qMonstatek's SD traffic through one worker. */
+    case RPC_CMD_FILE_LIST:
+    case RPC_CMD_FILE_READ:
+    case RPC_CMD_APP_LIST:
     case RPC_CMD_FILE_WRITE_START:
     case RPC_CMD_FILE_WRITE_DATA:
     case RPC_CMD_FILE_WRITE_FINISH:
@@ -781,16 +893,7 @@ static void rpc_dispatch_frame(const S_RPC_Frame *frame)
     case RPC_CMD_FILE_MKDIR:
     case RPC_CMD_SD_UNMOUNT:
     case RPC_CMD_SD_MOUNT:
-        if (s_deferred_pending)
-        {
-            m1_rpc_send_nack(frame->seq, RPC_ERR_BUSY);
-        }
-        else
-        {
-            memcpy(&s_deferred_frame, frame, sizeof(S_RPC_Frame));
-            s_deferred_pending = true;
-            xTaskNotifyGive(s_rpc_task_hdl);
-        }
+        rpc_defer_frame(frame);
         break;
 
     /* Firmware */
@@ -818,16 +921,7 @@ static void rpc_dispatch_frame(const S_RPC_Frame *frame)
      * so it must run on rpc_task, not inline on the USB CDC endpoint. */
     case RPC_CMD_FW_FLASH_FROM_SD:
     case RPC_CMD_ESP_FLASH_FROM_SD:
-        if (s_deferred_pending)
-        {
-            m1_rpc_send_nack(frame->seq, RPC_ERR_BUSY);
-        }
-        else
-        {
-            memcpy(&s_deferred_frame, frame, sizeof(S_RPC_Frame));
-            s_deferred_pending = true;
-            xTaskNotifyGive(s_rpc_task_hdl);
-        }
+        rpc_defer_frame(frame);
         break;
 
     /* Debug / CLI — deferred to rpc_task (16KB stack).
@@ -837,32 +931,14 @@ static void rpc_dispatch_frame(const S_RPC_Frame *frame)
      * drives header pins, so it runs off the USB endpoint. */
     case RPC_CMD_CLI_EXEC:
     case RPC_CMD_I2C_SCAN:
-        if (s_deferred_pending)
-        {
-            m1_rpc_send_nack(frame->seq, RPC_ERR_BUSY);
-        }
-        else
-        {
-            memcpy(&s_deferred_frame, frame, sizeof(S_RPC_Frame));
-            s_deferred_pending = true;
-            xTaskNotifyGive(s_rpc_task_hdl);
-        }
+        rpc_defer_frame(frame);
         break;
     /* ESP UART snoop — DEFERRED to rpc_task. It power-cycles the ESP and polls
      * its UART for ~8s; running that inline on the USB CDC task stalls the
      * endpoint for 8s, which drops the connection and loses the response frame.
      * The rpc_task has a bigger stack and doesn't block the USB endpoint. */
     case RPC_CMD_ESP_UART_SNOOP:
-        if (s_deferred_pending)
-        {
-            m1_rpc_send_nack(frame->seq, RPC_ERR_BUSY);
-        }
-        else
-        {
-            memcpy(&s_deferred_frame, frame, sizeof(S_RPC_Frame));
-            s_deferred_pending = true;
-            xTaskNotifyGive(s_rpc_task_hdl);
-        }
+        rpc_defer_frame(frame);
         break;
 
     default:
@@ -1020,9 +1096,10 @@ static void rpc_handle_get_device_info(const S_RPC_Frame *f)
     info.fw_variant = 0;   /* normal working FW */
 #endif
 
-    /* Mobile/WiFi session flag — lets a USB desktop client say "also connected to
-     * the mobile app" instead of mistaking a busy device for incompatible FW. */
-    info.link_active = m1_qmon_relay_session_active() ? 1 : 0;
+    /* Live remote-app transport bits: Wi-Fi=bit0, Bluetooth Direct=bit1. The
+     * relay returns zero rather than a stale state if the ESP has not recently
+     * confirmed the connection. */
+    info.link_active = m1_qmon_relay_session_status();
 
     m1_rpc_send_resp(RPC_CMD_DEVICE_INFO_RESP, f->seq,
                       (const uint8_t *)&info, sizeof(info));
@@ -1498,6 +1575,37 @@ static void rpc_build_sd_path(char *out, size_t out_size,
 
 
 /**
+ * @brief Record a USB transport reset from the PCD ISR.
+ *
+ * Do not reset the parser or close a file here: the parser contains a maximum
+ * size frame and FatFs is not ISR-safe. The receive and RPC tasks consume this
+ * epoch immediately after the reset instead.
+ */
+void m1_rpc_usb_session_reset_from_isr(void)
+{
+    s_usb_session_epoch++;
+
+    if (s_rpc_task_hdl != NULL)
+    {
+        BaseType_t higher_priority_task_woken = pdFALSE;
+        vTaskNotifyGiveFromISR(s_rpc_task_hdl, &higher_priority_task_woken);
+        portYIELD_FROM_ISR(higher_priority_task_woken);
+    }
+}
+
+/* A completed operation affecting either installed apps or the persisted menu
+ * layout must rebuild the main menu. The rebuild itself is deferred until the
+ * user is idle at Main Menu (m1_menu_apps_changed), so menu navigation never
+ * observes partially rebuilt structures. */
+static bool rpc_path_affects_menu(const char *path)
+{
+    return strcmp(path, "0:/System/menu.cfg") == 0 ||
+           strcmp(path, "0:/apps") == 0 ||
+           strncmp(path, "0:/apps/", 8) == 0;
+}
+
+
+/**
  * @brief  Handle FILE_LIST — list directory contents.
  *
  * Payload: path string (null-terminated or length-delimited)
@@ -1508,10 +1616,10 @@ static void rpc_build_sd_path(char *out, size_t out_size,
  */
 /* List installed .m1app apps on the SD card for the qM App Catalog.
  * Response: [count:1] then per app [nlen:1][display name][flen:1][filename].
- * Names/filenames are each <= 40 bytes, up to 16 apps, so it fits one frame. */
+ * A 64-app catalog with names/tags at their manifest limits fits RPC_MAX_PAYLOAD. */
 static void rpc_handle_app_list(const S_RPC_Frame *f)
 {
-    static uint8_t resp[512];
+    static uint8_t resp[RPC_MAX_PAYLOAD];
 
     if (!m1_sd_detected())
     {
@@ -1519,23 +1627,61 @@ static void rpc_handle_app_list(const S_RPC_Frame *f)
         return;
     }
 
+    /* APP_LIST is commonly the first SD operation qMonstatek performs.  A
+     * prior DMA timeout marks the card NotReady; recover it here before the
+     * scan rather than returning a misleading empty catalog. */
+    if (m1_sdcard_get_status() != SD_access_OK)
+        (void)m1_sdcard_init_retry();
+
+    if (m1_sdcard_get_status() != SD_access_OK)
+    {
+        m1_rpc_send_nack(f->seq, RPC_ERR_SD_NOT_READY);
+        return;
+    }
+
     uint16_t count = m1_app_manager_scan();
+    if (m1_app_manager_last_scan_result() != FR_OK)
+    {
+        /* The scan has released the FatFs volume lock before returning, so it
+         * is safe to reset and re-mount the controller here.  Retry exactly
+         * once; a persistent fault is reported to Studio instead of leaving
+         * its request pending forever. */
+        M1_LOG_W(M1_LOGDB_TAG, "APP_LIST scan failed (%d), recovering SD\r\n",
+                 (int)m1_app_manager_last_scan_result());
+        m1_sdcard_set_status(SD_access_NotReady);
+        (void)m1_sdcard_init_retry();
+        if (m1_sdcard_get_status() != SD_access_OK)
+        {
+            m1_rpc_send_nack(f->seq, RPC_ERR_SD_NOT_READY);
+            return;
+        }
+
+        count = m1_app_manager_scan();
+        if (m1_app_manager_last_scan_result() != FR_OK)
+        {
+            m1_rpc_send_nack(f->seq, RPC_ERR_SD_NOT_READY);
+            return;
+        }
+    }
     uint16_t rl = 0;
     resp[rl++] = (uint8_t)count;
 
     for (uint16_t i = 0; i < count; i++)
     {
-        const char *fname = NULL, *name = NULL;
-        if (!m1_app_manager_get(i, &fname, &name))
+        const char *fname = NULL, *name = NULL, *cat = NULL;
+        if (!m1_app_manager_get(i, &fname, &name, &cat))
             break;
         if (name  == NULL) name  = "";
         if (fname == NULL) fname = "";
+        if (cat   == NULL) cat   = "";
 
         uint8_t nl = (uint8_t)strnlen(name,  39);
         uint8_t fl = (uint8_t)strnlen(fname, 39);
+        uint8_t cl = (uint8_t)strnlen(cat,   15);
 
-        /* Stop cleanly if the next record would overflow the frame. */
-        if ((uint32_t)rl + 2u + nl + fl > sizeof(resp))
+        /* Record: [nl][name][fl][fname][cl][category]. Stop cleanly if the next
+         * record would overflow the frame. */
+        if ((uint32_t)rl + 3u + nl + fl + cl > sizeof(resp))
         {
             resp[0] = (uint8_t)i;   /* report how many we actually packed */
             break;
@@ -1543,6 +1689,7 @@ static void rpc_handle_app_list(const S_RPC_Frame *f)
 
         resp[rl++] = nl; memcpy(&resp[rl], name,  nl); rl += nl;
         resp[rl++] = fl; memcpy(&resp[rl], fname, fl); rl += fl;
+        resp[rl++] = cl; memcpy(&resp[rl], cat,   cl); rl += cl;
     }
 
     m1_rpc_send_resp(RPC_CMD_APP_LIST, f->seq, resp, rl);
@@ -1757,6 +1904,19 @@ static void rpc_handle_file_read(const S_RPC_Frame *f)
 }
 
 
+/* Close an incomplete file transfer. Must only run in rpc_task, never from a
+ * USB ISR, because FatFs serializes its state through task-context calls. */
+static void rpc_abort_file_write(void)
+{
+    if (s_file_write.active)
+        f_close(&s_file_write.file);
+
+    s_file_write.active = false;
+    s_file_write.refresh_menu = false;
+    s_file_write.last_chunk_valid = false;
+    s_file_write.last_activity_tick = 0;
+}
+
 /**
  * @brief  Handle FILE_WRITE_START — begin writing a file.
  *
@@ -1779,11 +1939,7 @@ static void rpc_handle_file_write_start(const S_RPC_Frame *f)
     }
 
     /* Abort any previous write */
-    if (s_file_write.active)
-    {
-        f_close(&s_file_write.file);
-        s_file_write.active = false;
-    }
+    rpc_abort_file_write();
 
     /* Parse total size */
     s_file_write.total_size = (uint32_t)f->payload[0] |
@@ -1800,12 +1956,29 @@ static void rpc_handle_file_write_start(const S_RPC_Frame *f)
                          FA_WRITE | FA_CREATE_ALWAYS);
     if (res != FR_OK)
     {
-        m1_rpc_send_nack(f->seq, RPC_ERR_FILE_NOT_FOUND);
-        return;
+        /* Parent dir may not exist (e.g. first-ever write of 0:/System/menu.cfg on
+         * a fresh card). Create the immediate parent and retry once so the write
+         * self-heals rather than failing. */
+        char *slash = strrchr(path, '/');
+        if (slash && slash != path && *(slash - 1) != ':')
+        {
+            *slash = 0;
+            f_mkdir(path);      /* harmless if it already exists */
+            *slash = '/';
+            res = f_open(&s_file_write.file, path, FA_WRITE | FA_CREATE_ALWAYS);
+        }
+        if (res != FR_OK)
+        {
+            m1_rpc_send_nack(f->seq, RPC_ERR_FILE_NOT_FOUND);
+            return;
+        }
     }
 
     s_file_write.bytes_written = 0;
     s_file_write.active = true;
+    s_file_write.refresh_menu = rpc_path_affects_menu(path);
+    s_file_write.last_chunk_valid = false;
+    s_file_write.last_activity_tick = xTaskGetTickCount();
 
     m1_rpc_send_ack(f->seq);
 }
@@ -1839,8 +2012,42 @@ static void rpc_handle_file_write_data(const S_RPC_Frame *f)
 
     uint16_t data_len = f->len - 4;
 
+    uint16_t chunk_crc = rpc_crc16(&f->payload[4], data_len);
+
+    /* A completed chunk whose ACK was lost is safe to replay. This is important
+     * across a short CDC interruption: qMonstatek retries the exact payload,
+     * while a different stale frame remains rejected by the strict sequence
+     * check below. */
+    if (s_file_write.last_chunk_valid &&
+        offset == s_file_write.last_chunk_offset &&
+        data_len == s_file_write.last_chunk_len &&
+        chunk_crc == s_file_write.last_chunk_crc &&
+        s_file_write.bytes_written == offset + data_len)
+    {
+        s_file_write.last_activity_tick = xTaskGetTickCount();
+        m1_rpc_send_ack(f->seq);
+        return;
+    }
+
+    /* The desktop uploader is sequential. Enforcing that contract prevents a
+     * stale/replayed chunk from seeking past the intended file and leaving a
+     * malformed app or menu.cfg on the card. */
+    if (offset != s_file_write.bytes_written ||
+        s_file_write.bytes_written > s_file_write.total_size ||
+        data_len > s_file_write.total_size - s_file_write.bytes_written)
+    {
+        rpc_abort_file_write();
+        m1_rpc_send_nack(f->seq, RPC_ERR_INVALID_PAYLOAD);
+        return;
+    }
+
     /* Seek to offset */
-    f_lseek(&s_file_write.file, offset);
+    if (f_lseek(&s_file_write.file, offset) != FR_OK)
+    {
+        rpc_abort_file_write();
+        m1_rpc_send_nack(f->seq, RPC_ERR_FILE_NOT_FOUND);
+        return;
+    }
 
     /* Write data */
     UINT written;
@@ -1848,11 +2055,20 @@ static void rpc_handle_file_write_data(const S_RPC_Frame *f)
                           data_len, &written);
     if (res != FR_OK || written != data_len)
     {
+        /* Close + deactivate on a failed chunk — otherwise the FIL stays open and
+         * the write stuck "active" until the next START, and a caller that gives
+         * up here leaves a dangling handle on the SD. */
+        rpc_abort_file_write();
         m1_rpc_send_nack(f->seq, RPC_ERR_FILE_NOT_FOUND);
         return;
     }
 
     s_file_write.bytes_written += written;
+    s_file_write.last_chunk_offset = offset;
+    s_file_write.last_chunk_len = data_len;
+    s_file_write.last_chunk_crc = chunk_crc;
+    s_file_write.last_chunk_valid = true;
+    s_file_write.last_activity_tick = xTaskGetTickCount();
     m1_rpc_send_ack(f->seq);
 }
 
@@ -1870,9 +2086,24 @@ static void rpc_handle_file_write_finish(const S_RPC_Frame *f)
         return;
     }
 
-    f_sync(&s_file_write.file);
+    if (s_file_write.bytes_written != s_file_write.total_size ||
+        f_sync(&s_file_write.file) != FR_OK)
+    {
+        rpc_abort_file_write();
+        m1_rpc_send_nack(f->seq, RPC_ERR_FILE_NOT_FOUND);
+        return;
+    }
+
     f_close(&s_file_write.file);
     s_file_write.active = false;
+    s_file_write.last_chunk_valid = false;
+    s_file_write.last_activity_tick = 0;
+
+    /* A completed app install or layout update becomes visible without reboot. */
+    if (s_file_write.refresh_menu) {
+        s_file_write.refresh_menu = false;
+        m1_menu_apps_changed();
+    }
 
     m1_rpc_send_ack(f->seq);
 }
@@ -1907,6 +2138,9 @@ static void rpc_handle_file_delete(const S_RPC_Frame *f)
             (res == FR_DENIED) ? RPC_ERR_DIR_NOT_EMPTY : RPC_ERR_FILE_NOT_FOUND);
         return;
     }
+
+    if (rpc_path_affects_menu(path))
+        m1_menu_apps_changed();
 
     m1_rpc_send_ack(f->seq);
 }
@@ -1986,6 +2220,9 @@ static void rpc_handle_file_delete_tree(const S_RPC_Frame *f)
         return;
     }
 
+    if (rpc_path_affects_menu(path))
+        m1_menu_apps_changed();
+
     m1_rpc_send_ack(f->seq);
 }
 
@@ -2030,6 +2267,9 @@ static void rpc_handle_file_rename(const S_RPC_Frame *f)
             (res == FR_EXIST) ? RPC_ERR_DIR_NOT_EMPTY : RPC_ERR_FILE_NOT_FOUND);
         return;
     }
+
+    if (rpc_path_affects_menu(old_path) || rpc_path_affects_menu(new_path))
+        m1_menu_apps_changed();
 
     m1_rpc_send_ack(f->seq);
 }
@@ -3406,36 +3646,69 @@ void m1_rpc_task(void *param)
          *  - rpc_dispatch_frame() for deferred slow commands */
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100));
 
-        /* Process deferred command (file delete, mkdir, etc.)
-         * These run here instead of the CDC task to avoid blocking
-         * the USB endpoint during slow SD card operations. */
-        if (s_deferred_pending)
+        /* Discard USB-owned work and any partial write left behind by a bus
+         * reset. The PCD ISR only increments the epoch; all FatFs cleanup is
+         * deliberately performed here in task context. TCP work is retained. */
+        uint32_t session_epoch = s_usb_session_epoch;
+        if (s_usb_cleanup_epoch != session_epoch)
         {
-            S_RPC_Frame frame;
-            memcpy(&frame, (const void *)&s_deferred_frame, sizeof(S_RPC_Frame));
-            s_deferred_pending = false;
-            /* Route this deferred op's reply back to its originating transport. */
-            s_deferred_to_tcp = (frame.src == RPC_SRC_TCP);
+            s_usb_cleanup_epoch = session_epoch;
 
-            switch (frame.cmd)
+            if (s_deferred_mutex != NULL &&
+                xSemaphoreTake(s_deferred_mutex, portMAX_DELAY) == pdTRUE)
             {
-            case RPC_CMD_FILE_WRITE_START:  rpc_handle_file_write_start(&frame);  break;
-            case RPC_CMD_FILE_WRITE_DATA:   rpc_handle_file_write_data(&frame);   break;
-            case RPC_CMD_FILE_WRITE_FINISH: rpc_handle_file_write_finish(&frame); break;
-            case RPC_CMD_FILE_DELETE:       rpc_handle_file_delete(&frame);       break;
-            case RPC_CMD_FILE_DELETE_TREE:  rpc_handle_file_delete_tree(&frame);  break;
-            case RPC_CMD_FILE_RENAME:       rpc_handle_file_rename(&frame);       break;
-            case RPC_CMD_FILE_MKDIR:        rpc_handle_file_mkdir(&frame);        break;
-            case RPC_CMD_SD_UNMOUNT:        rpc_handle_sd_unmount(&frame);        break;
-            case RPC_CMD_SD_MOUNT:          rpc_handle_sd_mount(&frame);          break;
-            case RPC_CMD_CLI_EXEC:          rpc_handle_cli_exec(&frame);          break;
-            case RPC_CMD_I2C_SCAN:          rpc_handle_i2c_scan(&frame);          break;
-            case RPC_CMD_ESP_UART_SNOOP:    rpc_handle_esp_uart_snoop(&frame);    break;
-            case RPC_CMD_ESP_UPDATE_START:  rpc_handle_esp_update_start(&frame);  break;
-            case RPC_CMD_ESP_UPDATE_FINISH: rpc_handle_esp_update_finish(&frame); break;
-            case RPC_CMD_FW_UPDATE_START:   rpc_handle_fw_update_start(&frame);   break;
-            case RPC_CMD_FW_FLASH_FROM_SD:  rpc_handle_fw_flash_from_sd(&frame);  break;
-            case RPC_CMD_ESP_FLASH_FROM_SD: rpc_handle_esp_flash_from_sd(&frame); break;
+                if (s_deferred_pending && s_deferred_frame.src == RPC_SRC_USB)
+                    s_deferred_pending = false;
+                xSemaphoreGive(s_deferred_mutex);
+            }
+
+            rpc_abort_file_write();
+        }
+
+        /* Process one deferred command. The producer slot is protected because
+         * USB and TCP can both submit work while this task is running. */
+        bool have_deferred = false;
+        if (xSemaphoreTake(s_deferred_mutex, portMAX_DELAY) == pdTRUE)
+        {
+            if (s_deferred_pending)
+            {
+                memcpy(&s_rpc_work_frame, (const void *)&s_deferred_frame,
+                       sizeof(s_rpc_work_frame));
+                s_deferred_pending = false;
+                have_deferred = true;
+            }
+            xSemaphoreGive(s_deferred_mutex);
+        }
+
+        if (have_deferred)
+        {
+            const S_RPC_Frame *frame = &s_rpc_work_frame;
+
+            /* Route this deferred op's reply back to its originating transport. */
+            s_deferred_to_tcp = (frame->src == RPC_SRC_TCP);
+
+            switch (frame->cmd)
+            {
+            case RPC_CMD_FILE_LIST:         rpc_handle_file_list(frame);         break;
+            case RPC_CMD_FILE_READ:         rpc_handle_file_read(frame);         break;
+            case RPC_CMD_APP_LIST:          rpc_handle_app_list(frame);          break;
+            case RPC_CMD_FILE_WRITE_START:  rpc_handle_file_write_start(frame);  break;
+            case RPC_CMD_FILE_WRITE_DATA:   rpc_handle_file_write_data(frame);   break;
+            case RPC_CMD_FILE_WRITE_FINISH: rpc_handle_file_write_finish(frame); break;
+            case RPC_CMD_FILE_DELETE:       rpc_handle_file_delete(frame);       break;
+            case RPC_CMD_FILE_DELETE_TREE:  rpc_handle_file_delete_tree(frame);  break;
+            case RPC_CMD_FILE_RENAME:       rpc_handle_file_rename(frame);       break;
+            case RPC_CMD_FILE_MKDIR:        rpc_handle_file_mkdir(frame);        break;
+            case RPC_CMD_SD_UNMOUNT:        rpc_handle_sd_unmount(frame);        break;
+            case RPC_CMD_SD_MOUNT:          rpc_handle_sd_mount(frame);          break;
+            case RPC_CMD_CLI_EXEC:          rpc_handle_cli_exec(frame);          break;
+            case RPC_CMD_I2C_SCAN:          rpc_handle_i2c_scan(frame);          break;
+            case RPC_CMD_ESP_UART_SNOOP:    rpc_handle_esp_uart_snoop(frame);    break;
+            case RPC_CMD_ESP_UPDATE_START:  rpc_handle_esp_update_start(frame);  break;
+            case RPC_CMD_ESP_UPDATE_FINISH: rpc_handle_esp_update_finish(frame); break;
+            case RPC_CMD_FW_UPDATE_START:   rpc_handle_fw_update_start(frame);   break;
+            case RPC_CMD_FW_FLASH_FROM_SD:  rpc_handle_fw_flash_from_sd(frame);  break;
+            case RPC_CMD_ESP_FLASH_FROM_SD: rpc_handle_esp_flash_from_sd(frame); break;
             default: break;
             }
         }
@@ -3458,6 +3731,13 @@ void m1_rpc_task(void *param)
         {
             M1_LOG_E(M1_LOGDB_TAG, "M1 flash session stalled - tearing down\r\n");
             fw_flash_session_teardown();
+        }
+        if (s_file_write.active &&
+            (xTaskGetTickCount() - s_file_write.last_activity_tick)
+                > pdMS_TO_TICKS(RPC_FILE_WRITE_STALL_TIMEOUT_MS))
+        {
+            M1_LOG_W(M1_LOGDB_TAG, "File upload stalled - closing incomplete file\r\n");
+            rpc_abort_file_write();
         }
 
         /* Screen streaming — service each transport's stream independently so
@@ -3505,6 +3785,10 @@ void m1_rpc_init(void)
     s_tx_mutex = xSemaphoreCreateMutex();
     assert(s_tx_mutex != NULL);
 
+    /* One protected slot for slow SD/flash/CLI commands. */
+    s_deferred_mutex = xSemaphoreCreateMutex();
+    assert(s_deferred_mutex != NULL);
+
     /* Screen streaming off by default */
     memset(s_screen, 0, sizeof(s_screen));
 
@@ -3516,6 +3800,10 @@ void m1_rpc_init(void)
 
     /* File write state */
     memset(&s_file_write, 0, sizeof(s_file_write));
+    memset(&s_rpc_work_frame, 0, sizeof(s_rpc_work_frame));
+    s_usb_session_epoch = 0;
+    s_usb_parser_epoch = 0;
+    s_usb_cleanup_epoch = 0;
 
     /* Create RPC task */
     BaseType_t ret = xTaskCreate(

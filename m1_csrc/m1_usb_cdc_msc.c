@@ -148,8 +148,9 @@ volatile uint8_t tx_cptl_usart1 = 0;
 const osThreadAttr_t Usb2SerTask_attributes = {
   .name = "Usb2SerTask",
   .priority = (osPriority_t)TASK_PRIORITY_LOG_DB_HANDLER,
-  //.stack_size = M1_TASK_STACK_SIZE_4096
-  .stack_size = M1_TASK_STACK_SIZE_2048
+  /* CMSIS uses bytes here (unlike xTaskCreate's word count). The RPC parser
+   * and USB receive recovery path need more than the old 2 KiB margin. */
+  .stack_size = M1_TASK_STACK_SIZE_4096
 };
 
 const osThreadAttr_t Ser2UsbTask_attributes = {
@@ -298,7 +299,15 @@ void vSer2UsbTask(void *pvParameters)
         }
       }
       else
-      { // Error !!, cancel data
+      {
+        /* Timeout: the previous USB TX never completed (host not reading / stalled
+         * endpoint). We did NOT acquire the semaphore here, so blindly giving it
+         * (the old behaviour) freed the "TX in flight" gate while CDC still owned
+         * usb_tx_temp_buffer by pointer — the next iteration then reused the buffer
+         * mid-flight, corrupting the transfer / losing data. Instead abort the
+         * stuck transfer (flush EP + clear TxState) so the buffer is safe, THEN
+         * restore the semaphore to the free state. */
+        CDC_TxAbort();
         xSemaphoreGive(ser2usb_task_semaphore);
       }
     }
@@ -375,13 +384,40 @@ void vUsb2SerTask(void *pvParameters)
 #endif
 
 #else
-    /* Wait indefinitely until data arrives */
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    /* Bounded wait (NOT portMAX_DELAY): the USB RX flow-control handshake pauses
+     * the OUT endpoint when the stream buffer fills, and the ISR does not notify
+     * on every path that leaves it paused. An indefinite wait here + the
+     * data==0 `continue` below stranded the endpoint paused forever on a lost
+     * wakeup => inbound RPC dead until USB re-plug/reboot. A 100 ms cap makes the
+     * task re-evaluate and re-arm on its own, so any lost wakeup self-heals. */
+    ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100));
 #endif
+
+    /* USB reset/disconnect can leave old-session bytes in the stream buffer.
+     * Reset it only here, never from the USB ISR. */
+    if (CDC_RxSessionResetTake())
+    {
+      if (h_usb_rx_streambuf != NULL)
+        xStreamBufferReset(h_usb_rx_streambuf);
+      continue;
+    }
 
     size_t data_available = xStreamBufferBytesAvailable(h_usb_rx_streambuf);
     if (data_available == 0)
+    {
+      /* No data to process — but if flow control paused the endpoint, re-arm it
+       * here. When the buffer is empty there is always room, so a stranded
+       * paused endpoint (lost ISR wakeup) recovers instead of hanging forever. */
+      if (usbcdc_rx_paused == 1)
+      {
+        taskENTER_CRITICAL();
+        usbcdc_rx_paused = 0;
+        __DSB();
+        USBD_CDC_ReceivePacket(&hUsbDeviceFS);
+        taskEXIT_CRITICAL();
+      }
       continue; // If there is no data, wait again
+    }
 
 #if 0
     if( xSemaphoreTake(usb2ser_tx_semaphore, portMAX_DELAY) != pdTRUE ) // Remove or keep a mutex

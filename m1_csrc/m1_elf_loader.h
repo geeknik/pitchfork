@@ -99,14 +99,20 @@ typedef struct {
 /* App-API level. ADDITIVE ONLY — bump when exporting a new symbol or a new
  * grouped-syscall op (see m1_app_syscall.h). Old apps declaring a lower level in
  * their .m1meta still load; an app needing a newer capability declares this
- * level as its minimum. v3: added the m1_sys_call grouped-dispatch umbrella. */
-#define M1_APP_API_VERSION      3
+ * level as its minimum. v3: added the m1_sys_call grouped-dispatch umbrella.
+ * v4: added m1app_dir_list(), the stable app-safe SD directory browser. */
+#define M1_APP_API_VERSION      4
+
+/* Core (pre-category) manifest size — old apps have exactly this. Anything from
+ * this size up is accepted; the category is zero-filled when absent. */
+#define M1_APP_MANIFEST_CORE_SIZE  (4 + 2 + 2 + 32)   /* magic+api+stack+name = 40 */
 
 typedef struct __attribute__((packed)) {
     uint32_t magic;
     uint16_t api_version;
     uint16_t stack_size;     /* in 32-bit words */
     char     name[32];
+    char     category[16];   /* default menu folder key; "" = Apps (added post-v3) */
 } m1_app_manifest_t;
 
 /* Loaded section info */
@@ -168,5 +174,7 @@ typedef enum {
 elf_load_status_t elf_load_app(const char *path, elf_app_t *app, const m1_api_interface_t *api);
 void elf_unload_app(elf_app_t *app);
 uint32_t elf_gnu_hash(const char *name);
+/* FatFS result (FRESULT) behind the most recent ELF_ERR_FILE, for on-screen diag. */
+uint8_t elf_last_ferr(void);
 
 #endif /* M1_ELF_LOADER_H_ */

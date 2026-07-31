@@ -41,7 +41,7 @@
 
 #define APPS_DIR              "0:/apps"
 #define APPS_EXTENSION        ".m1app"
-#define APPS_MAX_FILES        16
+#define APPS_MAX_FILES        M1_APPS_MAX_FILES
 #define APPS_NAME_MAX_LEN     40
 #define APPS_PATH_MAX_LEN     128
 
@@ -50,8 +50,14 @@
 #define LIST_START_Y          (LIST_HEADER_HEIGHT + 2)
 #define LIST_VISIBLE_ITEMS    4
 
-/* App task priority — same level as subfunc handler */
-#define APP_TASK_PRIORITY     (tskIDLE_PRIORITY + 5)
+/* App task priority — MUST match the subfunc handler (TASK_PRIORITY_SUBFUNC_HANDLER
+ * == tskNORMAL_PRIORITY) that runs the built-in menu features. Apps are drop-in
+ * replacements for those features, so they need the same scheduling. At the old
+ * value (tskIDLE_PRIORITY+5 = 5) an app sat BELOW the priority-10 RPC/screen task,
+ * which starved it out of the ESP link whenever qMonstatek was attached — the app
+ * could never acquire s_esp_mtx to finish a WiFi scan, while the built-in scan
+ * (priority 24) always could. */
+#define APP_TASK_PRIORITY     (tskNORMAL_PRIORITY)
 
 /* Default stack size if manifest doesn't specify (in 32-bit words) */
 #define APP_DEFAULT_STACK     2048
@@ -62,6 +68,7 @@ typedef struct {
     char filename[APPS_NAME_MAX_LEN];
     char display_name[APPS_NAME_MAX_LEN];
     char full_path[APPS_PATH_MAX_LEN];
+    char category[16];      /* manifest tag: default menu folder ("" = Apps) */
 } app_list_entry_t;
 
 typedef struct {
@@ -75,12 +82,17 @@ typedef struct {
 
 static app_list_entry_t s_app_list[APPS_MAX_FILES];
 static uint16_t s_app_count = 0;
+/* The RPC catalog must distinguish an empty /apps directory from a failed SD
+ * scan.  Returning zero for both made qMonstatek wait or display a bad layout
+ * while the actual storage error was hidden. */
+static FRESULT s_app_scan_result = FR_OK;
 static app_run_ctx_t s_run_ctx;
 
 /********************* F U N C T I O N   P R O T O T Y P E S ******************/
 
 static uint16_t apps_scan_directory(void);
-static bool apps_read_manifest_name(const char *path, char *name_out, uint16_t name_len);
+static bool apps_read_manifest_name(const char *path, char *name_out, uint16_t name_len,
+                                    char *cat_out, uint16_t cat_len);
 static void apps_draw_list(const char *title, uint16_t count, uint16_t selection);
 static void apps_draw_message(const char *line1, const char *line2);
 static elf_load_status_t apps_run(const char *path);
@@ -111,12 +123,19 @@ uint16_t m1_app_manager_scan(void)
     return apps_scan_directory();   /* also sets s_app_count */
 }
 
-bool m1_app_manager_get(uint16_t idx, const char **filename, const char **name)
+FRESULT m1_app_manager_last_scan_result(void)
+{
+    return s_app_scan_result;
+}
+
+bool m1_app_manager_get(uint16_t idx, const char **filename, const char **name,
+                        const char **category)
 {
     if (idx >= s_app_count)
         return false;
     if (filename) *filename = s_app_list[idx].filename;
     if (name)     *name     = s_app_list[idx].display_name;
+    if (category) *category = s_app_list[idx].category;
     return true;
 }
 
@@ -135,13 +154,20 @@ static uint16_t apps_scan_directory(void)
     uint16_t count = 0;
 
     s_app_count = 0;
+    s_app_scan_result = FR_OK;
 
     /* Ensure the apps directory exists */
-    f_mkdir(APPS_DIR);
+    res = f_mkdir(APPS_DIR);
+    if (res != FR_OK && res != FR_EXIST)
+    {
+        s_app_scan_result = res;
+        return 0;
+    }
 
     res = f_opendir(&dir, APPS_DIR);
     if (res != FR_OK)
     {
+        s_app_scan_result = res;
         M1_LOG_W(TAG, "Cannot open %s (err=%u)", APPS_DIR, res);
         return 0;
     }
@@ -149,7 +175,12 @@ static uint16_t apps_scan_directory(void)
     while (count < APPS_MAX_FILES)
     {
         res = f_readdir(&dir, &fno);
-        if (res != FR_OK || fno.fname[0] == '\0')
+        if (res != FR_OK)
+        {
+            s_app_scan_result = res;
+            break;
+        }
+        if (fno.fname[0] == '\0')
             break;
 
         /* Skip directories */
@@ -173,10 +204,13 @@ static uint16_t apps_scan_directory(void)
         snprintf(s_app_list[count].full_path, APPS_PATH_MAX_LEN,
                  "%s/%s", APPS_DIR, fno.fname);
 
-        /* Try to read the display name from the manifest */
+        /* Try to read the display name + category tag from the manifest */
+        s_app_list[count].category[0] = '\0';
         if (!apps_read_manifest_name(s_app_list[count].full_path,
                                       s_app_list[count].display_name,
-                                      APPS_NAME_MAX_LEN))
+                                      APPS_NAME_MAX_LEN,
+                                      s_app_list[count].category,
+                                      sizeof(s_app_list[count].category)))
         {
             /* Fall back to filename without extension */
             strncpy(s_app_list[count].display_name, fno.fname, name_len - ext_len);
@@ -186,11 +220,41 @@ static uint16_t apps_scan_directory(void)
         count++;
     }
 
-    f_closedir(&dir);
+    res = f_closedir(&dir);
+    if (res != FR_OK && s_app_scan_result == FR_OK)
+        s_app_scan_result = res;
     s_app_count = count;
 
     M1_LOG_I(TAG, "Found %u apps in %s", count, APPS_DIR);
     return count;
+}
+
+
+/* ---- Public interface for the modular menu layout (m1_menu.c) ---- */
+
+/* Scan 0:/apps and return the count; use m1_apps_get() to read each entry. */
+int m1_apps_scan(void)
+{
+    return (int)apps_scan_directory();
+}
+
+/* Copy one scanned app's path/name/category out. Returns false if idx is out of
+ * range. Any out pointer may be NULL. */
+bool m1_apps_get(int idx, char *path, uint16_t path_len,
+                 char *name, uint16_t name_len, char *cat, uint16_t cat_len)
+{
+    if (idx < 0 || idx >= (int)s_app_count) return false;
+    if (path && path_len) { strncpy(path, s_app_list[idx].full_path,   path_len - 1); path[path_len - 1] = '\0'; }
+    if (name && name_len) { strncpy(name, s_app_list[idx].display_name, name_len - 1); name[name_len - 1] = '\0'; }
+    if (cat  && cat_len)  { strncpy(cat,  s_app_list[idx].category,     cat_len  - 1); cat[cat_len  - 1] = '\0'; }
+    return true;
+}
+
+/* Load + run a specific .m1app by path (used by menu app-launch entries).
+ * Returns the elf_load_status_t as int (0 = ELF_OK). */
+int m1_apps_run(const char *path)
+{
+    return (int)apps_run(path);
 }
 
 
@@ -203,8 +267,10 @@ static uint16_t apps_scan_directory(void)
  * @retval bool      true if name was read successfully
  */
 /*============================================================================*/
-static bool apps_read_manifest_name(const char *path, char *name_out, uint16_t name_len)
+static bool apps_read_manifest_name(const char *path, char *name_out, uint16_t name_len,
+                                    char *cat_out, uint16_t cat_len)
 {
+    if (cat_out && cat_len) cat_out[0] = '\0';
     FIL fp;
     FRESULT res;
     UINT br;
@@ -294,16 +360,21 @@ static bool apps_read_manifest_name(const char *path, char *name_out, uint16_t n
         {
             const char *sec_name = (const char *)&shstrtab[shdr.sh_name];
             if (strcmp(sec_name, ".m1meta") == 0 &&
-                shdr.sh_size >= sizeof(m1_app_manifest_t))
+                shdr.sh_size >= M1_APP_MANIFEST_CORE_SIZE)
             {
+                /* Lenient read: old apps have only the 40-byte core (no category);
+                 * newer apps append category[16]. Zero-fill then copy what's there. */
                 m1_app_manifest_t manifest;
+                memset(&manifest, 0, sizeof(manifest));
+                uint32_t want = shdr.sh_size < sizeof(manifest)
+                                ? shdr.sh_size : (uint32_t)sizeof(manifest);
 
                 res = f_lseek(&fp, shdr.sh_offset);
                 if (res != FR_OK)
                     break;
 
-                res = f_read(&fp, &manifest, sizeof(m1_app_manifest_t), &br);
-                if (res != FR_OK || br != sizeof(m1_app_manifest_t))
+                res = f_read(&fp, &manifest, want, &br);
+                if (res != FR_OK || br != want)
                     break;
 
                 if (manifest.magic == M1_APP_MANIFEST_MAGIC &&
@@ -312,6 +383,11 @@ static bool apps_read_manifest_name(const char *path, char *name_out, uint16_t n
                     manifest.name[sizeof(manifest.name) - 1] = '\0';
                     strncpy(name_out, manifest.name, name_len - 1);
                     name_out[name_len - 1] = '\0';
+                    if (cat_out && cat_len) {
+                        manifest.category[sizeof(manifest.category) - 1] = '\0';
+                        strncpy(cat_out, manifest.category, cat_len - 1);
+                        cat_out[cat_len - 1] = '\0';
+                    }
                     f_close(&fp);
                     return true;
                 }
@@ -529,30 +605,18 @@ static elf_load_status_t apps_run(const char *path)
         return ELF_ERR_NO_MEMORY;
     }
 
-    /* Wait for the app task to complete.
-     * We poll with a timeout so we can check for BACK button to force-kill. */
+    /* Wait for the app task to complete. App input belongs to the app task:
+     * it may need BACK to stop a radio, flush a file, or release a BLE link
+     * before returning. The former parent-side BACK check raced that cleanup
+     * and could vTaskDelete() the app immediately after a normal click. */
     while (s_run_ctx.running)
     {
-        /* Wait for notification from app task, or timeout to check buttons */
+        /* Timed wait keeps this task responsive without stealing app input. */
         uint32_t notified = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(200));
         (void)notified;
 
         if (!s_run_ctx.running)
             break;
-
-        /* Check if BACK button was pressed (force kill) */
-        if (m1_button_pressed_check(BUTTON_BACK_KP_ID))
-        {
-            M1_LOG_W(TAG, "Force-killing app task");
-            s_run_ctx.running = false;
-
-            if (s_run_ctx.task_handle != NULL)
-            {
-                vTaskDelete(s_run_ctx.task_handle);
-                s_run_ctx.task_handle = NULL;
-            }
-            break;
-        }
     }
 
     /* Cleanup */
@@ -662,9 +726,17 @@ void game_apps_browser_run(void)
             {
                 /* Show error */
                 const char *err_msg;
+                char file_err_buf[24];
                 switch (result)
                 {
-                    case ELF_ERR_FILE:       err_msg = "File error";       break;
+                    case ELF_ERR_FILE:
+                        /* Include the FatFS code so an intermittent SD "File error"
+                         * self-reports its cause (15=timeout/held-mutex, 1=disk err,
+                         * 3=not ready, 4=no file). */
+                        snprintf(file_err_buf, sizeof(file_err_buf), "File error (%u)",
+                                 (unsigned)elf_last_ferr());
+                        err_msg = file_err_buf;
+                        break;
                     case ELF_ERR_FORMAT:     err_msg = "Bad format";       break;
                     case ELF_ERR_MACHINE:    err_msg = "Wrong arch";       break;
                     case ELF_ERR_NO_MEMORY:  err_msg = "Out of memory";    break;

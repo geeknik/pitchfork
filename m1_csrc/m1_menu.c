@@ -15,6 +15,9 @@
 #include <stdbool.h>
 #include "stm32h5xx_hal.h"
 #include "main.h"
+#include <string.h>
+#include "ff.h"              /* menu.cfg reader (data-driven top-level layout) */
+#include "m1_app_manager.h"  /* m1_apps_scan/get/run — inject apps into folders */
 //#include "mui.h"
 //#include "u8x8.h"
 //#include "U8g2lib.h"
@@ -615,6 +618,328 @@ void subfunc_handler_task(void *param);
  * orientation (skip the auto force-landscape wrap); 0 = wrap it. */
 static uint8_t s_subfunc_self_orient = 0;
 
+/*---------------- Modular menu layout (data-driven from 0:/System/menu.cfg) ----------------*/
+/*
+ * The top level is built at boot from a flat file the qMonstatek Studio "Menu
+ * Customization" view rewrites on every save. Format (regenerated whole each time):
+ *
+ *   MENU settings              # top-level order = MENU-line order (any arrangement)
+ *   MENU wifi     sort=custom      # APP-line order
+ *   MENU apps     sort=alpha-desc  # Z-A
+ *     APP wifi_scanner.m1app
+ *
+ * Acts on the full format: top-level ORDER, per-menu app SORT (custom=APP-line
+ * order with unlisted apps appended A-Z; alpha=A-Z; alpha-desc=Z-A), and APP
+ * placement lines (which
+ * override an app's manifest tag, so apps can be moved between folders). A newly
+ * installed app with no APP line yet still lands in its manifest-tag folder, so it
+ * is reachable immediately. Any missing/corrupt file, or categories not listed,
+ * fall back to the default legacy order so nothing is ever hidden or unreachable.
+ */
+
+typedef struct {
+    const char    *key;      /* token used in menu.cfg (MENU <key>)          */
+    const char    *title;    /* legacy display name                          */
+    const uint8_t *icon;     /* legacy icon                                  */
+    S_M1_Menu_t   *builtin;  /* backing built-in menu, or NULL = app-folder  */
+} menu_cat_t;
+
+/* Default legacy order. Built-ins (WiFi/BT/Apps/Settings) keep their own entries;
+ * the rest are app-only category folders (empty -> "install an app" message). */
+static const menu_cat_t k_cats[] = {
+    { "wifi",      "Wifi",      menu_m1_icon_wifi,      &menu_Wifi      },
+    { "bluetooth", "Bluetooth", menu_m1_icon_bluetooth, &menu_Bluetooth },
+    { "subghz",    "Sub-GHz",   menu_m1_icon_wave,      NULL            },
+    { "rfid",      "RFID",      menu_m1_icon_rfid,      NULL            },
+    { "nfc",       "NFC",       menu_m1_icon_nfc,       NULL            },
+    { "ir",        "Infrared",  menu_m1_icon_infrared,  NULL            },
+    { "gpio",      "GPIO",      menu_m1_icon_gpio,      NULL            },
+    { "games",     "Games",     menu_m1_icon_games,     NULL            },
+    { "apps",      "Apps",      menu_m1_icon_apps,      NULL            },
+    { "tools",     "Tools",     menu_m1_icon_gpio,      NULL            },
+    { "settings",  "Settings",  menu_m1_icon_setting,   &menu_Settings  },
+};
+#define MENU_CAT_COUNT ((int)(sizeof(k_cats) / sizeof(k_cats[0])))
+
+static S_M1_Menu_t s_main_dyn;                     /* runtime-built top level */
+static S_M1_Menu_t s_appfolder[MENU_CAT_COUNT];    /* RAM folders for app-only cats */
+
+/* Empty app-folder leaf: shown when a category has no apps installed yet. */
+static void menu_layout_empty_folder(void)
+{
+    for (;;) {
+        m1_u8g2_firstpage();
+        u8g2_SetFont(&m1_u8g2, M1_DISP_MAIN_MENU_FONT_N);
+        u8g2_DrawStr(&m1_u8g2, 4, 16, "No apps here yet.");
+        u8g2_DrawStr(&m1_u8g2, 4, 32, "Install one from");
+        u8g2_DrawStr(&m1_u8g2, 4, 46, "qMonstatek Studio.");
+        m1_u8g2_nextpage();
+
+        S_M1_Main_Q_t q_item;
+        S_M1_Buttons_Status btn;
+        if (xQueueReceive(main_q_hdl, &q_item, portMAX_DELAY) == pdTRUE &&
+            q_item.q_evt_type == Q_EVENT_KEYPAD) {
+            xQueueReceive(button_events_q_hdl, &btn, 0);
+            if (btn.event[BUTTON_BACK_KP_ID] == BUTTON_EVENT_CLICK ||
+                btn.event[BUTTON_OK_KP_ID]   == BUTTON_EVENT_CLICK) {
+                xQueueReset(main_q_hdl);
+                return;
+            }
+        }
+    }
+}
+
+/* ---- App launch entries: each is a leaf whose sub_func runs a specific .m1app ---- */
+#define MENU_MAX_APP_ENTRIES M1_APPS_MAX_FILES
+#define MENU_APP_PATH_LEN    128
+#define MENU_CFG_MAX_BYTES   4096
+
+static struct {
+    S_M1_Menu_t entry;
+    char        path[MENU_APP_PATH_LEN];
+} s_app_entries[MENU_MAX_APP_ENTRIES];
+static int s_app_entry_used;
+
+/* Set by the menu handler at leaf dispatch so the generic launcher knows which
+ * app entry was chosen (sub_func takes no args). */
+const S_M1_Menu_t *s_dispatched_leaf;
+
+/* Generic app-launch sub_func: run the .m1app bound to the dispatched leaf. */
+static void menu_launch_app(void)
+{
+    for (int i = 0; i < s_app_entry_used; i++)
+        if (&s_app_entries[i].entry == s_dispatched_leaf) {
+            m1_apps_run(s_app_entries[i].path);
+            return;
+        }
+}
+
+/* Make a leaf entry that launches the given app; NULL if the pool is full. */
+static S_M1_Menu_t *menu_make_app_entry(const char *path, const char *name)
+{
+    if (s_app_entry_used >= MENU_MAX_APP_ENTRIES) return NULL;
+    S_M1_Menu_t *e = &s_app_entries[s_app_entry_used].entry;
+    memset(e, 0, sizeof(*e));
+    strncpy(e->title, name, MENU_TITLE_LEN - 1);
+    e->sub_func = menu_launch_app;      /* leaf: num_submenu_items stays 0 */
+    strncpy(s_app_entries[s_app_entry_used].path, path, MENU_APP_PATH_LEN - 1);
+    s_app_entry_used++;
+    return e;
+}
+
+/* Manifest category key -> k_cats index, or -1 if empty/unknown. */
+static int menu_cat_index(const char *key)
+{
+    if (!key || !key[0]) return -1;
+    for (int c = 0; c < MENU_CAT_COUNT; c++)
+        if (strcmp(key, k_cats[c].key) == 0) return c;
+    return -1;
+}
+
+/* Parsed 0:/System/menu.cfg: top-level order, per-category sort mode, and the
+ * explicit APP placement/order lines (which override an app's manifest tag). */
+typedef struct {
+    int  order[MENU_CAT_COUNT];
+    int  n_order;
+    bool sort_custom[MENU_CAT_COUNT];
+    bool sort_alpha_desc[MENU_CAT_COUNT];
+    struct { int cat; char file[40]; } placed[MENU_MAX_APP_ENTRIES];
+    int  n_placed;
+} menu_cfg_t;
+
+/* Parse the whole menu.cfg into cfg. Returns n_order (0 => no/corrupt file =>
+ * caller uses the default legacy order). Tolerant of unknown keys, stray APP
+ * lines, and overflow (safely clamped). */
+static int menu_cfg_parse(menu_cfg_t *cfg)
+{
+    FIL fh;
+    static char buf[MENU_CFG_MAX_BYTES];
+    UINT br = 0;
+
+    memset(cfg, 0, sizeof(*cfg));
+    if (f_open(&fh, "0:/System/menu.cfg", FA_READ | FA_OPEN_EXISTING) != FR_OK)
+        return 0;
+    if (f_read(&fh, buf, sizeof(buf) - 1, &br) != FR_OK) { f_close(&fh); return 0; }
+    f_close(&fh);
+    buf[br] = 0;
+
+    int cur_cat = -1;
+    char *line = buf;
+    while (line < buf + br) {
+        char *eol = line;
+        while (eol < buf + br && *eol != '\n' && *eol != '\r') eol++;
+        char saved = *eol; *eol = 0;
+
+        char *p = line;
+        while (*p == ' ' || *p == '\t') p++;
+        if (strncmp(p, "MENU ", 5) == 0) {
+            char *key = p + 5;
+            while (*key == ' ' || *key == '\t') key++;
+            char *ke = key;
+            while (*ke && *ke != ' ' && *ke != '\t') ke++;
+            char ksaved = *ke; *ke = 0;
+            int ci = menu_cat_index(key);
+            *ke = ksaved;                 /* restore so the sort= scan sees the rest */
+            cur_cat = ci;
+            if (ci >= 0) {
+                int dup = 0;
+                for (int j = 0; j < cfg->n_order; j++) if (cfg->order[j] == ci) dup = 1;
+                if (!dup && cfg->n_order < MENU_CAT_COUNT) cfg->order[cfg->n_order++] = ci;
+                if (strstr(ke, "sort=custom")) cfg->sort_custom[ci] = true;
+                else if (strstr(ke, "sort=alpha-desc")) cfg->sort_alpha_desc[ci] = true;
+            }
+        } else if (strncmp(p, "APP ", 4) == 0 && cur_cat >= 0 &&
+                   cfg->n_placed < MENU_MAX_APP_ENTRIES) {
+            char *fn = p + 4;
+            while (*fn == ' ' || *fn == '\t') fn++;
+            char *fe = fn;
+            while (*fe && *fe != ' ' && *fe != '\t' && *fe != '\r') fe++;
+            *fe = 0;
+            if (*fn) {
+                cfg->placed[cfg->n_placed].cat = cur_cat;
+                strncpy(cfg->placed[cfg->n_placed].file, fn,
+                        sizeof(cfg->placed[0].file) - 1);
+                cfg->n_placed++;
+            }
+        }
+        *eol = saved;
+        line = (eol < buf + br) ? eol + 1 : buf + br;
+    }
+    return cfg->n_order;
+}
+
+/* Custom-order comparator: A sorts AFTER B when this returns true. cfg-listed
+ * apps (seq>=0) come first in listed order; unlisted apps follow, alpha by name. */
+static bool menu_app_order_gt(int seqA, const char *nA, int seqB, const char *nB)
+{
+    bool la = (seqA >= 0), lb = (seqB >= 0);
+    if (la && lb) return seqA > seqB;
+    if (la != lb) return !la;             /* listed is "smaller" */
+    return strcmp(nA, nB) > 0;
+}
+
+/* Build the runtime top-level from the menu.cfg order, injecting installed apps
+ * into their category folder by manifest tag (untagged/unknown -> Apps), sorted
+ * A-Z. Built-in menus (WiFi/BT/Settings) keep their own entries and get their
+ * tagged apps appended. Any failure falls back to default order, nothing hidden. */
+const S_M1_Menu_t *menu_layout_build(void)
+{
+    static menu_cfg_t cfg;
+    int  n     = menu_cfg_parse(&cfg);      /* 0 => no/corrupt file */
+    int *order = cfg.order;
+
+    bool seen[MENU_CAT_COUNT];
+    for (int c = 0; c < MENU_CAT_COUNT; c++) seen[c] = false;
+    for (int i = 0; i < n; i++) seen[order[i]] = true;
+    for (int c = 0; c < MENU_CAT_COUNT; c++)
+        if (!seen[c] && n < MENU_CAT_COUNT) order[n++] = c;
+
+    /* Scan apps; resolve each to a category: an explicit APP placement line in
+     * menu.cfg wins (matched by filename), else the manifest tag, else Apps. A
+     * newly installed app with no APP line yet still lands in its tag folder, so
+     * it is reachable immediately (self-healing). */
+    const int apps_cat = menu_cat_index("apps");
+    int app_count = m1_apps_scan();
+    if (app_count > MENU_MAX_APP_ENTRIES) app_count = MENU_MAX_APP_ENTRIES;
+
+    static char a_path[MENU_MAX_APP_ENTRIES][MENU_APP_PATH_LEN];
+    static char a_name[MENU_MAX_APP_ENTRIES][MENU_TITLE_LEN];
+    static int  a_cat[MENU_MAX_APP_ENTRIES];
+    static int  a_seq[MENU_MAX_APP_ENTRIES];   /* cfg placement index, -1 = unlisted */
+    for (int i = 0; i < app_count; i++) {
+        char cat[16] = {0};
+        m1_apps_get(i, a_path[i], MENU_APP_PATH_LEN, a_name[i], MENU_TITLE_LEN,
+                    cat, sizeof(cat));
+        const char *base = strrchr(a_path[i], '/');
+        base = base ? base + 1 : a_path[i];
+        int ci = -1, seq = -1;
+        for (int pl = 0; pl < cfg.n_placed; pl++)
+            if (strcmp(cfg.placed[pl].file, base) == 0) {
+                ci = cfg.placed[pl].cat; seq = pl; break;
+            }
+        if (ci < 0) { int t = menu_cat_index(cat); ci = (t >= 0) ? t : apps_cat; }
+        a_cat[i] = ci;
+        a_seq[i] = seq;
+    }
+
+    s_app_entry_used = 0;
+    memset(&s_main_dyn, 0, sizeof(s_main_dyn));
+    strncpy(s_main_dyn.title, "Main Menu", MENU_TITLE_LEN - 1);
+
+    int items = 0;
+    for (int i = 0; i < n && items < SUB_MENU_ITEMS_MAX; i++) {
+        int ci = order[i];
+        const menu_cat_t *cat = &k_cats[ci];
+        S_M1_Menu_t   *folder = &s_appfolder[ci];
+        int used;
+
+        if (cat->builtin) {
+            *folder = *cat->builtin;              /* copy entries + init fn + icon */
+            used = folder->num_submenu_items;
+        } else {
+            memset(folder, 0, sizeof(*folder));
+            strncpy(folder->title, cat->title, MENU_TITLE_LEN - 1);
+            folder->icon_ptr = cat->icon;
+            used = 0;
+        }
+
+        /* Collect this category's apps, then order them: custom (cfg APP order,
+         * unlisted appended A-Z), A-Z, or Z-A according to the saved layout. */
+        int idxs[MENU_MAX_APP_ENTRIES], na = 0;
+        for (int a = 0; a < app_count; a++)
+            if (a_cat[a] == ci) idxs[na++] = a;
+
+        bool custom = cfg.sort_custom[ci];
+        for (int x = 1; x < na; x++) {           /* insertion sort */
+            int key = idxs[x], y = x - 1;
+            if (custom) {
+                while (y >= 0 && menu_app_order_gt(a_seq[idxs[y]], a_name[idxs[y]],
+                                                   a_seq[key], a_name[key]))
+                    { idxs[y + 1] = idxs[y]; y--; }
+            } else {
+                while (y >= 0) {
+                    int cmp = strcmp(a_name[idxs[y]], a_name[key]);
+                    bool after = cfg.sort_alpha_desc[ci] ? (cmp < 0) : (cmp > 0);
+                    if (!after) break;
+                    idxs[y + 1] = idxs[y];
+                    y--;
+                }
+            }
+            idxs[y + 1] = key;
+        }
+        for (int k = 0; k < na && used < SUB_MENU_ITEMS_MAX; k++) {
+            S_M1_Menu_t *e = menu_make_app_entry(a_path[idxs[k]], a_name[idxs[k]]);
+            if (!e) break;
+            folder->submenu[used++] = e;
+        }
+        folder->num_submenu_items = (uint8_t)used;
+
+        /* Empty app-only folder -> show the "install an app" leaf message. */
+        if (!cat->builtin && used == 0)
+            folder->sub_func = menu_layout_empty_folder;
+
+        s_main_dyn.submenu[items++] = folder;
+    }
+    s_main_dyn.num_submenu_items = (uint8_t)items;
+    return &s_main_dyn;
+}
+
+/* Set (from the RPC/file task) when 0:/apps changes — the menu handler rebuilds
+ * the top level at its next main-menu idle tick, so a newly installed app is
+ * usable without a reboot. */
+static volatile bool s_apps_dirty = false;
+void m1_menu_apps_changed(void) { s_apps_dirty = true; }
+
+/* Re-scan apps + rebuild the top level in place. Call ONLY at the main menu
+ * (level 0) so no submenu is mid-navigation; refresh the count + clamp selection. */
+void menu_layout_rebuild(void)
+{
+    menu_layout_build();                       /* refills s_main_dyn in place */
+    menu_ctl.num_menu_items = s_main_dyn.num_submenu_items;
+    if (menu_ctl.menu_item_active >= menu_ctl.num_menu_items)
+        menu_ctl.menu_item_active = menu_ctl.num_menu_items ? (menu_ctl.num_menu_items - 1) : 0;
+}
+
 /*************** F U N C T I O N   I M P L E M E N T A T I O N ****************/
 
 /*============================================================================*/
@@ -627,7 +952,9 @@ static void menu_main_init(void)
     menu_ctl.menu_level = 0; // main menu
     menu_ctl.menu_item_active = 0; // first menu item
     menu_ctl.last_selected_items[0] = 0; // last selected item is the current active item
-    menu_ctl.main_menu_ptr[0] = &menu_Main; // level 0 should be the main menu
+    /* Build the top level from 0:/System/menu.cfg (legacy default order + folders
+     * if the file is missing/corrupt; nothing hidden). Replaces the const menu_Main. */
+    menu_ctl.main_menu_ptr[0] = menu_layout_build();
     menu_ctl.num_menu_items = menu_ctl.main_menu_ptr[0]->num_submenu_items;
 
     assert(menu_ctl.num_menu_items >= 3);
@@ -686,6 +1013,17 @@ void menu_main_handler_task(void *param)
 		ret = xQueueReceive(main_q_hdl, &q_item, pdMS_TO_TICKS(1000));
 		if ( ret!=pdTRUE )
 		{
+			/* Apps installed/removed since the menu was built? Rebuild the top
+			 * level in place so a new app is usable without a reboot — only while
+			 * idle at the main menu, so no submenu is mid-navigation. */
+			if ( s_apps_dirty
+			     && m1_device_stat.op_mode == M1_OPERATION_MODE_MENU_ON
+			     && menu_ctl.menu_level == 0 )
+			{
+				s_apps_dirty = false;
+				menu_layout_rebuild();
+				m1_gui_menu_update(pthis_submenu, menu_ctl.menu_item_active, MENU_UPDATE_RESET);
+			}
 			/* Queue-wait timeout (no button). Live-refresh the battery indicator
 			 * on the main menu so charge % / plugged state track without a keypress.
 			 * Redraw only when it changed, and only on the top-level menu (the only
@@ -757,6 +1095,7 @@ void menu_main_handler_task(void *param)
 	                            else if ( pthis_submenu->submenu[menu_ctl.menu_item_active]->sub_func != NULL ) // This menu item has no submenu. Does it have a function to run?
 	                            {
 	                                m1_device_stat.op_mode = M1_OPERATION_MODE_SUB_FUNC_RUNNING;
+	                                s_dispatched_leaf = pthis_submenu->submenu[menu_ctl.menu_item_active]; // capture WHICH leaf (app-launch entries need it)
 	                                m1_device_stat.sub_func = pthis_submenu->submenu[menu_ctl.menu_item_active]->sub_func; // let schedule to run the function of the selected submenu item
 	                                s_subfunc_self_orient = pthis_submenu->submenu[menu_ctl.menu_item_active]->reserved; // 1 = self-managed orientation
 	                                //this_button_status.event[key].event = BUTTON_EVENT_IDLE; // clear before return

@@ -94,7 +94,10 @@ void m1_tasks_init(void)
 	assert(free_heap >= M1_LOW_FREE_HEAP_WARNING_SIZE);
 
 #ifndef M1_RECOVERY_BUILD
-	ret = xTaskCreate(sdcard_detection_task, "sdcard_detection_task_n", M1_TASK_STACK_SIZE_DEFAULT, NULL, TASK_PRIORITY_SDCARD_HANDLER, &sdcard_task_hdl);
+	/* Card insertion/recovery performs HAL init plus f_mount/f_getfree.  The
+	 * 1 KiB default task stack was not enough for that call chain and could
+	 * corrupt SD state during a recovery. */
+	ret = xTaskCreate(sdcard_detection_task, "sdcard_detection_task_n", M1_TASK_STACK_SIZE_1024, NULL, TASK_PRIORITY_SDCARD_HANDLER, &sdcard_task_hdl);
 	assert(ret==pdPASS);
 	assert(system_task_hdl!=NULL);
 	free_heap = xPortGetFreeHeapSize();

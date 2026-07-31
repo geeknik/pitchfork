@@ -41,6 +41,23 @@ uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len);
  * shared TX buffer must wait for this to clear before overwriting it. */
 uint8_t CDC_Transmit_Busy(void);
 
+/* Abort a CDC IN transfer that cannot complete.  Safe from either ISR or task
+ * context; it deliberately drops the incomplete frame so a later RPC response
+ * cannot remain blocked behind a TxState that will never receive a completion
+ * interrupt. */
+void CDC_TxAbort(void);
+
+/* Backward-compatible ISR spelling used by the PCD suspend callback. */
+void CDC_TxAbortFromISR(void);
+
+/* Called from the USB PCD reset/disconnect ISR. It drops any bytes buffered
+ * for the old CDC session and wakes the USB receive task to reset its stream
+ * buffer in task context. */
+void CDC_RxSessionResetFromISR(void);
+
+/* Task-context half of CDC_RxSessionResetFromISR(). */
+uint8_t CDC_RxSessionResetTake(void);
+
 #ifdef __cplusplus
 }
 #endif

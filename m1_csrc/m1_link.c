@@ -21,6 +21,7 @@
 
 #define M1L_HS_TIMEOUT_MS   100     /* wait for slave-armed HANDSHAKE */
 #define M1L_SPI_TIMEOUT_MS  100     /* one 512B transfer @ ~9.375MHz ~= 0.5ms */
+#define M1L_MUTEX_GRACE_MS  100     /* bounded wait behind the active exchange */
 
 /* 4-byte aligned SRAM buffers (no DMA here, but keeps things tidy). */
 static uint8_t s_tx[M1L_MTU] __attribute__((aligned(4)));
@@ -175,7 +176,15 @@ int m1_link_request_msg(uint8_t type, uint16_t msg_id,
                         uint8_t *resp, uint16_t resp_size, uint32_t timeout_ms)
 {
     M1L_BC_STAGE(0x01);          /* breadcrumb: entered request (pre-mutex) */
-    if (s_link_mutex) xSemaphoreTake(s_link_mutex, portMAX_DELAY);
+    /* A request which cannot obtain this lock is a transport failure, not a
+     * reason to permanently block the UI task or USB/relay service behind it. */
+    if (s_link_mutex && xSemaphoreTake(s_link_mutex,
+            pdMS_TO_TICKS(timeout_ms + M1L_MUTEX_GRACE_MS)) != pdTRUE) {
+        M1L_BC_STAGE(0xEE);
+        m1_link_bc(12, 0xFFFFFFFBu); /* -5: link mutex timeout */
+        M1_LOG_W(M1_LOGDB_TAG, "m1link mutex timeout id=0x%04X\r\n", msg_id);
+        return -5;
+    }
     M1L_BC_STAGE(0x02);          /* breadcrumb: got the link mutex */
 
     static uint8_t txf[M1L_MTU];

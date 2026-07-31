@@ -70,4 +70,9 @@ void subfunc_handler_task(void *param);
 extern TaskHandle_t subfunc_handler_task_hdl;
 extern TaskHandle_t menu_main_handler_task_hdl;
 
+/* Signal that 0:/apps changed (app installed/removed) so the top-level menu
+ * rebuilds at its next main-menu idle tick — new apps appear without a reboot.
+ * Safe to call from any task (just sets a flag). */
+void m1_menu_apps_changed(void);
+
 #endif /* M1_MENU_H_ */

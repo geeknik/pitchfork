@@ -47,6 +47,7 @@
 
 static uint8_t usbRxBuffer[USB_RX_BUF_SIZE];
 static uint16_t usbRxBufIndex = 0;
+static volatile uint8_t s_rx_session_reset_pending = 0;
 /**
   * @}
   */
@@ -70,6 +71,35 @@ uint8_t UserRxBufferFS[USB_FS_CHUNK_SIZE];
 uint8_t UserTxBufferFS[USB_FS_CHUNK_SIZE];
 
 extern USBD_HandleTypeDef hUsbDeviceFS;
+
+/* A device reset can arrive while a packet is held in the intermediate buffer
+ * or while reception is paused for flow control. Keep this ISR-safe: the stream
+ * buffer itself is reset later by vUsb2SerTask(). */
+void CDC_RxSessionResetFromISR(void)
+{
+  BaseType_t higher_priority_task_woken = pdFALSE;
+
+  usbRxBufIndex = 0;
+  usbcdc_rx_paused = 0;
+  s_rx_session_reset_pending = 1;
+
+  if (usb2ser_task_hdl != NULL)
+    vTaskNotifyGiveFromISR(usb2ser_task_hdl, &higher_priority_task_woken);
+
+  portYIELD_FROM_ISR(higher_priority_task_woken);
+}
+
+uint8_t CDC_RxSessionResetTake(void)
+{
+  uint8_t pending;
+
+  taskENTER_CRITICAL();
+  pending = s_rx_session_reset_pending;
+  s_rx_session_reset_pending = 0;
+  taskEXIT_CRITICAL();
+
+  return pending;
+}
 
 
 /** @defgroup USBD_CDC_Private_FunctionPrototypes
@@ -268,6 +298,13 @@ static int8_t CDC_Receive_FS(uint8_t *Buf, uint32_t *Len)
         }
         usbRxBufIndex -= sentBytes;
         freeSpace -= sentBytes;
+
+        /* Notify the task — this first drain block previously pushed bytes into
+         * the stream buffer WITHOUT waking vUsb2SerTask, which is the lost-wakeup
+         * that could strand the endpoint paused with data pending. */
+        if (usb2ser_task_hdl != NULL) {
+          vTaskNotifyGiveFromISR(usb2ser_task_hdl, &xHigherPriorityTaskWoken);
+        }
       }
     }
 
@@ -397,7 +434,17 @@ static int8_t CDC_TransmitCplt_FS(uint8_t *Buf, uint32_t *Len, uint8_t epnum)
 uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len)
 {
   uint8_t result = USBD_OK;
-  USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassData;
+  /* In the CDC+MSC composite, pClassData follows the class currently being
+   * serviced by the USB core.  It can therefore point at MSC while an RPC task
+   * is about to transmit.  Always address the registered CDC instance directly
+   * instead of reading that mutable alias. */
+#if M1_USB_MODE == M1_CFG_USB_CDC_MSC
+  USBD_CDC_HandleTypeDef *hcdc =
+      (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassDataCmsit[CDC_InstID];
+#else
+  USBD_CDC_HandleTypeDef *hcdc =
+      (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassData;
+#endif
 
   /* pClassData is NULL until the CDC class is registered/enumerated, and can go
    * NULL again on a USB reset/disconnect. Without this guard, hcdc->TxState
@@ -413,7 +460,6 @@ uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len)
 
 #if M1_USB_MODE == M1_CFG_USB_CDC_MSC
   // MSC+CDC Composite
-  hUsbDeviceFS.classId = CDC_InstID;
   USBD_CDC_SetTxBuffer(&hUsbDeviceFS, Buf, Len, CDC_InstID);
   result = USBD_CDC_TransmitPacket(&hUsbDeviceFS, CDC_InstID);
 
@@ -432,10 +478,41 @@ uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len)
  * overwriting it — otherwise the in-flight frame is corrupted on the wire. */
 uint8_t CDC_Transmit_Busy(void)
 {
-  USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassData;
+#if M1_USB_MODE == M1_CFG_USB_CDC_MSC
+  USBD_CDC_HandleTypeDef *hcdc =
+      (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassDataCmsit[CDC_InstID];
+#else
+  USBD_CDC_HandleTypeDef *hcdc =
+      (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassData;
+#endif
   if (hcdc == NULL)
     return 0;   /* not enumerated — nothing in flight */
   return (hcdc->TxState != 0) ? 1 : 0;
+}
+
+void CDC_TxAbort(void)
+{
+#if M1_USB_MODE == M1_CFG_USB_CDC_MSC
+  USBD_CDC_HandleTypeDef *hcdc =
+      (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassDataCmsit[CDC_InstID];
+#else
+  USBD_CDC_HandleTypeDef *hcdc =
+      (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassData;
+#endif
+
+  if (hcdc == NULL)
+    return;
+
+  /* A suspended host may never generate the DataIn completion that clears
+   * TxState.  Flush the stale packet and release the class state so the first
+   * command after resume can receive its ACK. */
+  (void)USBD_LL_FlushEP(&hUsbDeviceFS, CDC_IN_EP);
+  hcdc->TxState = 0U;
+}
+
+void CDC_TxAbortFromISR(void)
+{
+  CDC_TxAbort();
 }
 
 /**

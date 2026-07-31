@@ -109,6 +109,7 @@ void m1_sdcard_set_status(S_M1_SDCard_Access_Status stat);
 static uint8_t m1_sdcard_getcardstate(void);
 static DSTATUS m1_sdcard_checkstatus(uint8_t param);
 static uint8_t m1_sdcard_checkstatus_ex(uint32_t timeout);
+static void m1_sdcard_io_fault(const char *operation, HAL_StatusTypeDef status);
 void m1_sdcard_writecplt_callback(void);
 void m1_sdcard_readcplt_callback(void);
 void HAL_SD_TxCpltCallback(SD_HandleTypeDef *hsd);
@@ -682,7 +683,12 @@ void m1_sdcard_mount(void)
 		if ( sd_fres==FR_DISK_ERR )
 			sdcard_ctl.status = SD_access_NotReady;  /* wedged low-level I/O — let init_retry re-init */
 		else
-			sdcard_ctl.status = SD_access_UnMounted;
+			/* A mount failure must NOT land in SD_access_UnMounted: that is the state
+			 * STORAGE_IsReady() uses to expose the raw card to the host over USB-MSC.
+			 * Handing Windows a card that FatFs just failed to mount can corrupt it.
+			 * UnMounted is reserved for the user explicitly choosing USB-storage mode
+			 * (m1_sdcard_unmount). NotOK gets the same connect-time remount recovery. */
+			sdcard_ctl.status = SD_access_NotOK;
 	} // else
 	sdcard_ctl.timestamp = HAL_GetTick();
 	M1_LOG_I(M1_LOGDB_TAG, "Mounting result: f_mount:%d %s\r\n", sd_fres, m1_sd_error_msg(sdcard_ctl.status));
@@ -841,6 +847,25 @@ static uint8_t m1_sdcard_checkstatus_ex(uint32_t timeout)
 
 
 
+/*============================================================================*/
+/* A DMA operation that never reaches HAL_SD_CARD_TRANSFER must be aborted.
+ * Previously only a missing completion callback took this path; a completion
+ * followed by a permanently-busy controller returned RES_ERROR but left the
+ * SDMMC peripheral alive and the card marked usable.  Every later FatFs call
+ * then failed until a power cycle. */
+/*============================================================================*/
+static void m1_sdcard_io_fault(const char *operation, HAL_StatusTypeDef status)
+{
+	if (phsd != NULL)
+		(void)HAL_SD_Abort(phsd);
+
+	m1_sdcard_set_status(SD_access_NotReady);
+	M1_LOG_E(M1_LOGDB_TAG, "SD %s fault (HAL=%d), re-init required\r\n",
+			 operation, (int)status);
+}
+
+
+
 /******************************************************************************/
 /**
   * @brief Tx Transfer completed callbacks
@@ -980,9 +1005,16 @@ DRESULT m1_sdcard_read(uint8_t param, uint8_t *buff, DWORD sector, UINT count)
 	uint32_t timer;
 	uint16_t event;
 	BaseType_t status;
+	HAL_StatusTypeDef hal_status;
 
 	if ( m1_sdcard_checkstatus_ex(SD_DATATIMEOUT) )
 	{
+		m1_sdcard_io_fault("read precheck", HAL_TIMEOUT);
+		return res;
+	}
+	if (sdcard_cb_q_hdl == NULL)
+	{
+		m1_sdcard_io_fault("read queue", HAL_ERROR);
 		return res;
 	}
 
@@ -990,33 +1022,28 @@ DRESULT m1_sdcard_read(uint8_t param, uint8_t *buff, DWORD sector, UINT count)
 	 * can't pop the wrong event and return RES_OK while this DMA is still live. */
 	xQueueReset(sdcard_cb_q_hdl);
 
-	if (HAL_SD_ReadBlocks_DMA(phsd, buff, (uint32_t)sector, count)==HAL_OK)
+	hal_status = HAL_SD_ReadBlocks_DMA(phsd, buff, (uint32_t)sector, count);
+	if (hal_status != HAL_OK)
 	{
-		status = xQueueReceive(sdcard_cb_q_hdl, (void *)&event, SD_DATATIMEOUT);
-		if ((status==pdTRUE) && (event==SDCARD_CB_READ_CPLT_MSG))
+		m1_sdcard_io_fault("read start", hal_status);
+		return res;
+	}
+
+	status = xQueueReceive(sdcard_cb_q_hdl, (void *)&event, SD_DATATIMEOUT);
+	if ((status == pdTRUE) && (event == SDCARD_CB_READ_CPLT_MSG))
+	{
+		timer = osKernelGetTickCount();
+		while ((osKernelGetTickCount() - timer) < SD_DATATIMEOUT)
 		{
-			timer = osKernelGetTickCount();
-			/* block until SDIO IP is ready or a timeout occur */
-			while ( (osKernelGetTickCount() - timer) < SD_DATATIMEOUT )
-			{
-				if (m1_sdcard_getcardstate()==SD_TRANSFER_OK)
-				{
-					res = RES_OK;
-					break;
-				}
-				osDelay(1); /* yield: let the lower-prio WDT task run; no-op when the card is already ready */
-			} // while ( (osKernelGetTickCount() - timer) < SD_DATATIMEOUT )
-        } // if ((status==pdTRUE) && (event==SDCARD_CB_READ_CPLT_MSG))
-		else
-		{
-			/* Timeout or wrong event: abort the stranded DMA so it can't later
-			 * corrupt a reused buffer and so HAL doesn't stay stuck BUSY. Flag the
-			 * card NotReady so init_retry re-inits it instead of staying wedged
-			 * until a reboot/reinsert. */
-			HAL_SD_Abort(phsd);
-			m1_sdcard_set_status(SD_access_NotReady);
+			if (m1_sdcard_getcardstate() == SD_TRANSFER_OK)
+				return RES_OK;
+			osDelay(1); /* yield so the watchdog task can run */
 		}
-	} // if (HAL_SD_ReadBlocks_DMA(phsd, buff, (uint32_t)sector, count)==HAL_OK)
+	}
+
+	/* This covers a missing/incorrect callback AND the previously-unhandled
+	 * completion-without-transfer-ready timeout. */
+	m1_sdcard_io_fault("read completion", HAL_TIMEOUT);
 
 	return res;
 /*	error HAL_SD_ERROR_RX_OVERRUN */
@@ -1040,39 +1067,42 @@ DRESULT m1_sdcard_write(uint8_t param, const uint8_t *buff, DWORD sector, UINT c
 	uint32_t timer;
 	uint16_t event;
 	BaseType_t status;
+	HAL_StatusTypeDef hal_status;
 
 	if ( m1_sdcard_checkstatus_ex(SD_DATATIMEOUT) )
 	{
+		m1_sdcard_io_fault("write precheck", HAL_TIMEOUT);
+		return res;
+	}
+	if (sdcard_cb_q_hdl == NULL)
+	{
+		m1_sdcard_io_fault("write queue", HAL_ERROR);
 		return res;
 	}
 
 	/* Discard any stale completion left by a previously timed-out DMA. */
 	xQueueReset(sdcard_cb_q_hdl);
 
-	if ( HAL_SD_WriteBlocks_DMA(phsd, buff, (uint32_t)sector, count)==HAL_OK )
+	hal_status = HAL_SD_WriteBlocks_DMA(phsd, buff, (uint32_t)sector, count);
+	if (hal_status != HAL_OK)
 	{
-		status = xQueueReceive(sdcard_cb_q_hdl, (void *)&event, SD_DATATIMEOUT);
-		if ((status==pdTRUE) && (event==SDCARD_CB_WRITE_CPLT_MSG))
+		m1_sdcard_io_fault("write start", hal_status);
+		return res;
+	}
+
+	status = xQueueReceive(sdcard_cb_q_hdl, (void *)&event, SD_DATATIMEOUT);
+	if ((status == pdTRUE) && (event == SDCARD_CB_WRITE_CPLT_MSG))
+	{
+		timer = osKernelGetTickCount();
+		while ((osKernelGetTickCount() - timer) < SD_DATATIMEOUT)
 		{
-			timer = osKernelGetTickCount();
-			/* block until SDIO IP is ready or a timeout occur */
-			while ( (osKernelGetTickCount() - timer) < SD_DATATIMEOUT )
-			{
-				if (m1_sdcard_getcardstate()==SD_TRANSFER_OK)
-				{
-					res = RES_OK;
-					break;
-				}
-				osDelay(1); /* yield: let the lower-prio WDT task run; no-op when the card is already ready */
-			} // while ( (osKernelGetTickCount() - timer) < SD_DATATIMEOUT )
-        } // if ((status==pdTRUE) && (event==SDCARD_CB_WRITE_CPLT_MSG))
-		else
-		{
-			/* Abort the stranded DMA (see read path) + flag for re-init. */
-			HAL_SD_Abort(phsd);
-			m1_sdcard_set_status(SD_access_NotReady);
+			if (m1_sdcard_getcardstate() == SD_TRANSFER_OK)
+				return RES_OK;
+			osDelay(1); /* yield so the watchdog task can run */
 		}
-	} // if ( HAL_SD_WriteBlocks_DMA(phsd, buff, (uint32_t)sector, count)==HAL_OK )
+	}
+
+	m1_sdcard_io_fault("write completion", HAL_TIMEOUT);
 
 	return res;
 } // DRESULT m1_sdcard_write(uint8_t param, const uint8_t *buff, DWORD sector, UINT count)
