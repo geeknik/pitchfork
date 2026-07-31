@@ -47,6 +47,10 @@ uint8_t CDC_Transmit_Busy(void);
  * interrupt. */
 void CDC_TxAbort(void);
 
+/* Re-arm the CDC OUT (RX) endpoint from task context, forcing the CDC instance on
+ * a composite device. Returns USBD_OK only when the rearm was accepted. */
+uint8_t CDC_RearmRx(void);
+
 /* Backward-compatible ISR spelling used by the PCD suspend callback. */
 void CDC_TxAbortFromISR(void);
 

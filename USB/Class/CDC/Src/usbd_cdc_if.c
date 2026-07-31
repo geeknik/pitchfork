@@ -200,11 +200,15 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t *pbuf, uint16_t length)
       linecoding.paritytype = pbuf[5];
       linecoding.datatype   = pbuf[6];
 
-      /* Add your code here */
-      if (m1_usbcdc_mode == CDC_MODE_VCP)
-      {
-        m1_usb_cdc_comconfig();
-      }
+      /* Store the requested line coding for GET_LINE_CODING to echo back, but do
+       * NOT reconfigure here. This handler runs in the USB control-request (ISR)
+       * context, and m1_usb_cdc_comconfig() → m1_logdb_deinit() tears down USART1
+       * + DMA + IRQs AND vSemaphoreDelete()s the shared log-write mutex — all
+       * illegal from an ISR, and deleting a mutex that rpc_task/other tasks are
+       * blocked on (portMAX_DELAY) wedges them permanently. qM uses this CDC port
+       * as its RPC transport and does not need the physical USART1 baud changed;
+       * the raw USB↔USART1 bridge, if used, must reconfigure USART1 from task
+       * context on entry, not from this ISR. */
       break;
 
     case CDC_GET_LINE_CODING:
@@ -488,6 +492,20 @@ uint8_t CDC_Transmit_Busy(void)
   if (hcdc == NULL)
     return 0;   /* not enumerated — nothing in flight */
   return (hcdc->TxState != 0) ? 1 : 0;
+}
+
+/* Re-arm the CDC OUT (RX) endpoint from TASK context. On a composite CDC+MSC
+ * device, USBD_CDC_ReceivePacket routes by the mutable pdev->classId — a prior
+ * MSC data-out can leave it pointing at MSC, so a naive rearm would arm the wrong
+ * endpoint and leave the serial port enumerated but unable to receive. Force the
+ * CDC instance first. Returns USBD_OK only when the rearm was accepted, so the
+ * caller can keep usbcdc_rx_paused set (and retry) on failure. */
+uint8_t CDC_RearmRx(void)
+{
+#if M1_USB_MODE == M1_CFG_USB_CDC_MSC
+  hUsbDeviceFS.classId = CDC_InstID;
+#endif
+  return USBD_CDC_ReceivePacket(&hUsbDeviceFS);
 }
 
 void CDC_TxAbort(void)

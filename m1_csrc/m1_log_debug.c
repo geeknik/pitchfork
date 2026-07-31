@@ -328,7 +328,11 @@ void m1_logdb_init(void)
 	}
 #endif // #ifdef M1_DEBUG_CLI_ENABLE
 
-	mutex_log_write_trans = xSemaphoreCreateMutex();
+	/* Create ONCE and never recreate. m1_logdb_init runs again on a UART reconfig
+	 * (line-coding change), but this mutex serializes ALL M1_LOG_* callers across
+	 * every task and must NOT be swapped underneath them. */
+	if ( mutex_log_write_trans == NULL )
+		mutex_log_write_trans = xSemaphoreCreateMutex();
 	assert(mutex_log_write_trans);
 
 	log_q_hdl = xQueueCreate(1, 1);
@@ -365,8 +369,12 @@ void m1_logdb_deinit(void)
     HAL_NVIC_DisableIRQ(GPDMA1_Channel2_IRQn);
     HAL_DMA_DeInit(&hdma_rxlogdb);
 
-    if ( mutex_log_write_trans != NULL )
-    	vSemaphoreDelete(mutex_log_write_trans);
+    /* Do NOT delete mutex_log_write_trans here. It serializes ALL M1_LOG_* calls
+     * (every task takes it with portMAX_DELAY) and is unrelated to the UART/DMA
+     * hardware this function tears down. Deleting it out from under a task blocked
+     * on it — as happened when SET_LINE_CODING drove this from the USB ISR —
+     * wedges that task permanently. It is created once in m1_logdb_init and must
+     * persist for the life of the system. */
 } // static void m1_logdb_deinit(void)
 
 

@@ -425,9 +425,13 @@ void vUsb2SerTask(void *pvParameters)
       if (usbcdc_rx_paused == 1)
       {
         taskENTER_CRITICAL();
-        usbcdc_rx_paused = 0;
-        __DSB();
-        USBD_CDC_ReceivePacket(&hUsbDeviceFS);
+        /* Clear paused ONLY after a real rearm, and force the CDC instance so a
+         * stale MSC classId can't arm the wrong endpoint and leave RX un-armed. */
+        if (CDC_RearmRx() == USBD_OK)
+        {
+          usbcdc_rx_paused = 0;
+          __DSB();
+        }
         taskEXIT_CRITICAL();
       }
       continue; // If there is no data, wait again
@@ -461,9 +465,12 @@ void vUsb2SerTask(void *pvParameters)
         if (usbcdc_rx_paused == 1)
         {
           taskENTER_CRITICAL();
-          usbcdc_rx_paused = 0;
-          __DSB();
-          USBD_CDC_ReceivePacket(&hUsbDeviceFS);
+          /* Clear paused ONLY after a real rearm; force the CDC instance. */
+          if (CDC_RearmRx() == USBD_OK)
+          {
+            usbcdc_rx_paused = 0;
+            __DSB();
+          }
           taskEXIT_CRITICAL();
         }
         continue;  /* Skip UART forwarding */
@@ -530,9 +537,13 @@ if (DEBUG_bytes_to_send < bytes_to_send) DEBUG_bytes_to_send = bytes_to_send;
       if (usbcdc_rx_paused == 1)
       {
         taskENTER_CRITICAL();
-        usbcdc_rx_paused = 0;
-        __DSB();  /* Ensure paused flag write is committed before re-arming */
-        USBD_CDC_ReceivePacket(&hUsbDeviceFS);
+        /* Clear paused ONLY after a real rearm; force the CDC instance so a stale
+         * MSC classId can't arm the wrong endpoint. */
+        if (CDC_RearmRx() == USBD_OK)
+        {
+          usbcdc_rx_paused = 0;
+          __DSB();  /* Ensure paused flag write is committed before re-arming */
+        }
         taskEXIT_CRITICAL();
       }
     }
