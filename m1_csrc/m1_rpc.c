@@ -245,6 +245,12 @@ static S_RPC_Frame  s_deferred_frame;
  * left too little room for an APP_LIST manifest scan and FatFs/HAL call chain. */
 static S_RPC_Frame  s_rpc_work_frame;
 static volatile bool s_deferred_pending = false;
+/* USB session epoch captured when the pending frame was queued. The reconnect
+ * cleanup uses this to discard ONLY stale (older-session) USB work, never a
+ * request that legitimately arrived in the current session — otherwise a valid
+ * first FILE_WRITE_START right after re-enumeration was silently dropped (no ACK
+ * or NACK), which qM saw as a START-ACK timeout. */
+static volatile uint32_t s_deferred_epoch = 0;
 static SemaphoreHandle_t s_deferred_mutex;
 
 /* Queue exactly one slow command for rpc_task. USB CDC and the TCP relay can
@@ -268,6 +274,7 @@ static void rpc_defer_frame(const S_RPC_Frame *frame)
     }
 
     memcpy(&s_deferred_frame, frame, sizeof(S_RPC_Frame));
+    s_deferred_epoch = s_usb_session_epoch;   /* tag with the session it arrived in */
     s_deferred_pending = true;
     xSemaphoreGive(s_deferred_mutex);
     xTaskNotifyGive(s_rpc_task_hdl);
@@ -615,6 +622,17 @@ void m1_rpc_log_enqueue(const char *data, int len)
 
 static void rpc_flush_log(void)
 {
+    /* Do NOT try to flush logs to a suspended or still-busy IN endpoint. If the
+     * host has stopped draining (USB selective-suspend / long idle), the TX below
+     * would stall ~1s here holding s_tx_mutex, AND its own "CDC TX stalled" WARN
+     * lines re-enter this very ring (m1_log_debug.c, when m1_rpc_active) — a
+     * self-sustaining livelock that keeps this ring non-empty and starves
+     * rpc_task's deferred work every loop (the post-idle "deferred commands time
+     * out while inline still answers" wedge). Skip; the ring drains once the host
+     * resumes reading. The ring is fixed-size, so it simply caps, never grows. */
+    if (m1_USB_CDC_ready != 0 || CDC_Transmit_Busy())
+        return;
+
     uint16_t head = s_log_ring_head;
     uint16_t tail = s_log_ring_tail;
 
@@ -3654,13 +3672,34 @@ void m1_rpc_task(void *param)
         {
             s_usb_cleanup_epoch = session_epoch;
 
+            bool    discarded = false;
+            uint8_t discarded_seq = 0;
             if (s_deferred_mutex != NULL &&
                 xSemaphoreTake(s_deferred_mutex, portMAX_DELAY) == pdTRUE)
             {
-                if (s_deferred_pending && s_deferred_frame.src == RPC_SRC_USB)
+                /* Discard ONLY stale USB work (queued in an older session). A frame
+                 * tagged with the current epoch legitimately arrived after this
+                 * reset and must be processed, not dropped — dropping it was the
+                 * silent FILE_WRITE_START loss after re-enumeration. */
+                if (s_deferred_pending && s_deferred_frame.src == RPC_SRC_USB &&
+                    s_deferred_epoch != session_epoch)
+                {
+                    /* Capture the seq so we can NACK it AFTER releasing the slot
+                     * lock — never silently drop, or the host times out with no
+                     * response (it can retry immediately on BUSY instead). This is
+                     * also the safety net for the reset-churn race where a frame is
+                     * tagged just before another epoch bump. */
+                    discarded_seq = s_deferred_frame.seq;
+                    discarded = true;
                     s_deferred_pending = false;
+                }
                 xSemaphoreGive(s_deferred_mutex);
             }
+
+            /* NACK outside the slot lock (m1_rpc_send_nack does a TX that can take
+             * the tx mutex / stall — must not run while holding s_deferred_mutex). */
+            if (discarded)
+                m1_rpc_send_nack(discarded_seq, RPC_ERR_BUSY);
 
             rpc_abort_file_write();
         }

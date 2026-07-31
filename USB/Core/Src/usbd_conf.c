@@ -71,6 +71,14 @@ void HAL_PCD_ResetCallback(PCD_HandleTypeDef *hpcd)
   m1_rpc_usb_session_reset_from_isr();
 #endif
 
+  /* A bus reset can be how the device wakes from selective-suspend when a Resume
+   * event is missed/coalesced. Suspend set m1_USB_CDC_ready = -1; if only Resume
+   * cleared it (and it never fired) all RPC TX would stay silently disabled until
+   * replug. Clear the suspend flag here too so TX recovers on any wake path.
+   * (-2 is the HID-mode sentinel and must not be overridden.) */
+  if (m1_USB_CDC_ready == -1)
+    m1_USB_CDC_ready = 0;
+
     /* Set Speed. */
   USBD_LL_SetSpeed((USBD_HandleTypeDef*)hpcd->pData, speed);
   /* Reset Device. */

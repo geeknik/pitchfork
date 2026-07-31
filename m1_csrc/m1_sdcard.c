@@ -1204,15 +1204,43 @@ void sdcard_detection_task(void *param)
 
 	while (1)
 	{
-		ret = xQueueReceive(sdcard_det_q_hdl, &q_item, portMAX_DELAY);
+		ret = xQueueReceive(sdcard_det_q_hdl, &q_item, pdMS_TO_TICKS(2000));
 		if ( ret != pdPASS )
+		{
+			/* SELF-HEAL (no event this cycle): a false/bouncing card-detect edge
+			 * can take a physically-present card offline — unmounted, marked
+			 * NotReady, FatFs driver unlinked — and with no further edge NOTHING
+			 * re-inits it, so the SD stays dead until a reboot (the long-standing
+			 * "SD wedges after sitting on USB a while" bug). If the card is still
+			 * physically present but stuck NotReady, re-drive the normal detect/
+			 * recovery path so it comes back on its own. A genuine removal reads
+			 * !m1_sd_detected() and is skipped; scoped to NotReady ONLY so it never
+			 * disturbs the intentional UnMounted USB-storage mode. Gated on an
+			 * empty queue so recovery attempts can't pile up. */
+			if ( m1_sd_detected() &&
+			     m1_sdcard_get_status() == SD_access_NotReady &&
+			     uxQueueMessagesWaiting(sdcard_det_q_hdl) == 0 )
+			{
+				/* WARN so it is captured at the device's default verbosity — this
+				 * line firing proves a card-detect glitch took the (still-present)
+				 * card offline, which is the wedge we're chasing. */
+				M1_LOG_W(M1_LOGDB_TAG, "SD self-heal: card present but NotReady, re-initializing\r\n");
+				q_item.q_evt_type = Q_EVENT_SDCARD_CHANGE;
+				xQueueSend(sdcard_det_q_hdl, &q_item, portMAX_DELAY);
+			}
 			continue;
+		}
 
 		if (ret==pdPASS)
 		{
 			switch ( q_item.q_evt_type )
 			{
 				case Q_EVENT_SDCARD_CHANGE:
+			        /* WARN so it survives default verbosity: records every raw card-
+			         * detect edge (PD15 level + current status) so a false/bouncing
+			         * edge is visible in the captured log. */
+			        M1_LOG_W(M1_LOGDB_TAG, "SD detect edge: pin=%d stat=%d\r\n",
+			                 (int)m1_sd_detected(), (int)m1_sdcard_get_status());
 			        if ( m1_sd_detected() )
 			        {
 			        	// The card may be being inserted or removed. Bouncing may happen when the card is being removed.
