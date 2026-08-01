@@ -3656,8 +3656,20 @@ void m1_rpc_task(void *param)
 
     static uint8_t screen_seq = 0;
 
+    /* Watchdog supervision: activate now that the task is running (registered
+     * inactive at boot). The 100ms notify-wait means a healthy idle loop
+     * heartbeats ~10x/sec; the only thing that legitimately stops the loop is a
+     * flash op, which suspends this report around itself (see below). */
+    m1_wdt_resume_task(M1_REPORT_ID_RPC_TASK);
+    TickType_t rpc_wdt_last = xTaskGetTickCount();
+
     for (;;)
     {
+        /* Heartbeat: report the actual elapsed time of the previous iteration
+         * (before any long op below). A true hang stops the reports and resets. */
+        m1_wdt_send_report_ex(M1_REPORT_ID_RPC_TASK, rpc_wdt_last);
+        rpc_wdt_last = xTaskGetTickCount();
+
         /* Wait for notification with timeout.
          * Notifications come from:
          *  - m1_rpc_notify_screen_update() for screen frame ready
@@ -3670,13 +3682,16 @@ void m1_rpc_task(void *param)
         uint32_t session_epoch = s_usb_session_epoch;
         if (s_usb_cleanup_epoch != session_epoch)
         {
-            s_usb_cleanup_epoch = session_epoch;
-
+            bool    cleaned = false;
             bool    discarded = false;
             uint8_t discarded_seq = 0;
+            /* Bounded wait: the slot lock is only ever held briefly. If it times
+             * out we leave s_usb_cleanup_epoch UNadvanced so the cleanup retries
+             * next loop, instead of blocking rpc_task forever on a stuck holder. */
             if (s_deferred_mutex != NULL &&
-                xSemaphoreTake(s_deferred_mutex, portMAX_DELAY) == pdTRUE)
+                xSemaphoreTake(s_deferred_mutex, pdMS_TO_TICKS(250)) == pdTRUE)
             {
+                cleaned = true;
                 /* Discard ONLY stale USB work (queued in an older session). A frame
                  * tagged with the current epoch legitimately arrived after this
                  * reset and must be processed, not dropped — dropping it was the
@@ -3701,13 +3716,22 @@ void m1_rpc_task(void *param)
             if (discarded)
                 m1_rpc_send_nack(discarded_seq, RPC_ERR_BUSY);
 
-            rpc_abort_file_write();
+            /* Only mark this session cleaned (and close its file) if we actually
+             * got the lock; otherwise retry next loop. */
+            if (cleaned)
+            {
+                rpc_abort_file_write();
+                s_usb_cleanup_epoch = session_epoch;
+            }
         }
 
         /* Process one deferred command. The producer slot is protected because
-         * USB and TCP can both submit work while this task is running. */
+         * USB and TCP can both submit work while this task is running. Bounded
+         * wait (the slot lock is only ever held for a couple of memcpy's, so this
+         * never legitimately blocks); on the rare timeout we just retry next loop
+         * rather than let rpc_task hang forever on a stuck holder. */
         bool have_deferred = false;
-        if (xSemaphoreTake(s_deferred_mutex, portMAX_DELAY) == pdTRUE)
+        if (xSemaphoreTake(s_deferred_mutex, pdMS_TO_TICKS(250)) == pdTRUE)
         {
             if (s_deferred_pending)
             {
@@ -3725,6 +3749,19 @@ void m1_rpc_task(void *param)
 
             /* Route this deferred op's reply back to its originating transport. */
             s_deferred_to_tcp = (frame->src == RPC_SRC_TCP);
+
+            /* Flash ops legitimately block this task for many seconds (erase /
+             * program / verify). Suspend our watchdog report around them so a
+             * real flash is never misread as a hang and reset mid-write (brick
+             * risk). Every OTHER deferred op is bounded (<=5s SD sw-timeout),
+             * so it stays supervised. */
+            bool rpc_flash_op = (frame->cmd == RPC_CMD_FW_UPDATE_START   ||
+                                 frame->cmd == RPC_CMD_FW_FLASH_FROM_SD  ||
+                                 frame->cmd == RPC_CMD_ESP_UPDATE_START  ||
+                                 frame->cmd == RPC_CMD_ESP_UPDATE_FINISH ||
+                                 frame->cmd == RPC_CMD_ESP_FLASH_FROM_SD);
+            if (rpc_flash_op)
+                m1_wdt_suspend_task(M1_REPORT_ID_RPC_TASK);
 
             switch (frame->cmd)
             {
@@ -3749,6 +3786,14 @@ void m1_rpc_task(void *param)
             case RPC_CMD_FW_FLASH_FROM_SD:  rpc_handle_fw_flash_from_sd(frame);  break;
             case RPC_CMD_ESP_FLASH_FROM_SD: rpc_handle_esp_flash_from_sd(frame); break;
             default: break;
+            }
+
+            if (rpc_flash_op)
+            {
+                /* Resume + reset the heartbeat baseline so the just-elapsed flash
+                 * seconds aren't counted against the next window. */
+                m1_wdt_resume_task(M1_REPORT_ID_RPC_TASK);
+                rpc_wdt_last = xTaskGetTickCount();
             }
         }
 

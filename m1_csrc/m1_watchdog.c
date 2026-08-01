@@ -153,11 +153,13 @@ void m1_wdt_report_init(void)
 	 * normal bursty work. */
 	m1_wdt_add_task_to_report(M1_REPORT_ID_USB2SER_HANDLER_TASK, M1_WDT_SYSTEM_CHECK_TIMEOUT, 25, 250);
 	m1_wdt_add_task_to_report(M1_REPORT_ID_QMON_RELAY_TASK,      M1_WDT_SYSTEM_CHECK_TIMEOUT, 25, 250);
+	m1_wdt_add_task_to_report(M1_REPORT_ID_RPC_TASK,            M1_WDT_SYSTEM_CHECK_TIMEOUT, 25, 250);
 	/* Start them INACTIVE: each task calls m1_wdt_resume_task() when it actually
 	 * begins looping. Until then a registered-but-not-yet-scheduled task would
 	 * accumulate no reports and could trip the first system-check at boot. */
 	m1_wdt_suspend_task(M1_REPORT_ID_USB2SER_HANDLER_TASK);
 	m1_wdt_suspend_task(M1_REPORT_ID_QMON_RELAY_TASK);
+	m1_wdt_suspend_task(M1_REPORT_ID_RPC_TASK);
 } // void m1_wdt_report_init(void)
 
 
