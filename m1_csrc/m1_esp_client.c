@@ -728,12 +728,13 @@ bool m1_esp_client_ble_direct(bool enable, const char *name)
 /* Query which BLE role(s) are active for the BT-info screen. Flags: bit0 direct
  * advertising, bit1 direct connected, bit2 bad-bt advertising, bit3 bad-bt
  * connected. Returns false if the ESP didn't answer. */
-bool m1_esp_client_ble_state(uint8_t *flags)
+bool m1_esp_client_ble_state(uint8_t *flags, signed char *hid_adv_rc)
 {
-    uint8_t resp[1] = { 0 };
+    uint8_t resp[2] = { 0, 0 };
     int n = esp_call(M1ESP_BLE_STATE, NULL, 0, resp, sizeof(resp));
     if (n < 1) return false;
-    if (flags) *flags = resp[0];
+    if (flags)      *flags      = resp[0];
+    if (hid_adv_rc) *hid_adv_rc = (n >= 2) ? (signed char)resp[1] : 0;
     return true;
 }
 

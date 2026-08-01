@@ -801,9 +801,10 @@ void bluetooth_info(void)
 	 * shown here: reaching this screen means the Bad-BT app is closed (it tears
 	 * its HID down on exit), so it is always idle from here — no line needed. */
 	uint8_t ble_flags = 0;
+	signed char hid_rc = 0;
 	const char *direct_state;
 	if (get_esp32_main_init_status())
-		m1_esp_client_ble_state(&ble_flags);
+		m1_esp_client_ble_state(&ble_flags, &hid_rc);
 	if (m1_ble_direct)
 		direct_state = (ble_flags & 0x02) ? "connected"
 		             : (ble_flags & 0x01) ? "advertising" : "on";
@@ -823,6 +824,9 @@ void bluetooth_info(void)
 	snprintf(l, sizeof(l), "Direct: %s", direct_state);
 	u8g2_DrawStr(&m1_u8g2, 2, y, l); y += 12;
 	snprintf(l, sizeof(l), " %s", m1_bt_direct_name);
+	u8g2_DrawStr(&m1_u8g2, 2, y, l); y += 12;
+	/* Diagnostic: last Bad-BT (HID) ext-adv start rc (0 = ok). */
+	snprintf(l, sizeof(l), "HID adv rc: %d", (int)hid_rc);
 	u8g2_DrawStr(&m1_u8g2, 2, y, l);
 
 	m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back", "OK", arrowright_8x8);
