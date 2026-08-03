@@ -66,12 +66,13 @@ const char *m1_nfc_more_options_file[] = {
 		"Delete"
 };
 
-/* Menu for NFC Tools (both top-level nfc_tools() and Utils view) */
-#define NFC_TOOL_OPTIONS_COUNT  5
+/* Menu for NFC Tools (both top-level nfc_tools() and Utils view). NFC Fuzzer
+ * was removed — it duplicates the NFC Fuzzer app and was only reachable after
+ * reading a real card. */
+#define NFC_TOOL_OPTIONS_COUNT  4
 static const char *m1_nfc_tool_options[] = {
 	"Tag Info",
 	"Clone Emulate",
-	"NFC Fuzzer",
 	"Write UID",
 	"Wipe Tag"
 };
@@ -180,7 +181,6 @@ static int nfc_utils_kp_handler(void);
 /* Forward declarations for NFC tools (used by nfc_utils view and nfc_tools) */
 static const char* nfc_tool_manufacturer_name(uint8_t mfr_byte);
 static const char* nfc_tool_sak_meaning(uint8_t sak, const uint8_t atqa[2]);
-static void nfc_tool_fuzzer(void);
 
 static void nfc_info_gui_init(void);
 static void nfc_info_gui_create(uint8_t param);
@@ -1531,17 +1531,12 @@ static int nfc_utils_kp_handler(void)
 					break;
 				}
 
-				case 2: /* NFC Fuzzer */
-					nfc_tool_fuzzer();
-					m1_uiView_display_update(X_MENU_UPDATE_REFRESH);
-					break;
-
-				case 3: /* Write UID */
+				case 2: /* Write UID */
 					nfc_utils_write_uid_run();
 					m1_uiView_display_update(X_MENU_UPDATE_REFRESH);
 					break;
 
-				case 4: /* Wipe Tag */
+				case 3: /* Wipe Tag */
 					nfc_utils_wipe_tag_run();
 					m1_uiView_display_update(X_MENU_UPDATE_REFRESH);
 					break;
@@ -2083,95 +2078,6 @@ static const char* nfc_tool_sak_meaning(uint8_t sak, const uint8_t atqa[2])
 	return "Other";
 }
 
-/* Fuzzer card profiles for NFC-A emulation */
-#define NFC_FUZZ_PROFILE_COUNT  4
-static const char *nfc_fuzz_profile_names[] = {
-	"Classic 1K", "Classic 4K", "Ultralight", "DESFire"
-};
-static const uint8_t nfc_fuzz_profile_atqa[][2] = {
-	{0x04, 0x00}, {0x02, 0x00}, {0x44, 0x00}, {0x04, 0x03}
-};
-static const uint8_t nfc_fuzz_profile_sak[] = {
-	0x08, 0x18, 0x00, 0x20
-};
-static const uint8_t nfc_fuzz_profile_uid_len[] = {
-	4, 4, 7, 7
-};
-
-static void nfc_fuzz_uid_step(uint8_t *uid, uint8_t uid_len, int8_t dir)
-{
-	if (dir > 0) {
-		for (int i = uid_len - 1; i >= 0; i--) {
-			uid[i]++;
-			if (uid[i] != 0) break;
-		}
-	} else {
-		for (int i = uid_len - 1; i >= 0; i--) {
-			uid[i]--;
-			if (uid[i] != 0xFF) break;
-		}
-	}
-}
-
-static void nfc_fuzz_draw_setup(uint8_t prof_sel, const uint8_t *uid, uint8_t uid_len,
-                                int8_t dir, uint16_t delay_ms)
-{
-	char line[32];
-	u8g2_FirstPage(&m1_u8g2);
-	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
-	u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
-	u8g2_DrawStr(&m1_u8g2, 2, 10, "NFC Fuzzer Setup");
-
-	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
-	snprintf(line, sizeof(line), "Type: %s", nfc_fuzz_profile_names[prof_sel]);
-	u8g2_DrawStr(&m1_u8g2, 2, 22, line);
-
-	snprintf(line, sizeof(line), "UID: %s", hex2Str((unsigned char*)uid, uid_len));
-	u8g2_DrawStr(&m1_u8g2, 2, 32, line);
-
-	snprintf(line, sizeof(line), "Dir: %s  Dly: %ums",
-	         (dir > 0) ? "UP" : "DN", delay_ms);
-	u8g2_DrawStr(&m1_u8g2, 2, 42, line);
-
-	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
-	u8g2_DrawBox(&m1_u8g2, 0, 52, 128, 12);
-	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_BG);
-	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
-	u8g2_DrawStr(&m1_u8g2, 4, 61, "UP/DN:adj");
-	u8g2_DrawStr(&m1_u8g2, 74, 61, "OK:Start");
-
-	m1_u8g2_nextpage();
-}
-
-static void nfc_fuzz_draw_running(uint8_t prof_sel, const uint8_t *uid, uint8_t uid_len,
-                                  uint32_t count)
-{
-	char line[32];
-	u8g2_FirstPage(&m1_u8g2);
-	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
-	u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
-	u8g2_DrawStr(&m1_u8g2, 2, 10, "NFC Fuzzer");
-
-	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
-	snprintf(line, sizeof(line), "Type: %s", nfc_fuzz_profile_names[prof_sel]);
-	u8g2_DrawStr(&m1_u8g2, 2, 22, line);
-
-	snprintf(line, sizeof(line), "UID: %s", hex2Str((unsigned char*)uid, uid_len));
-	u8g2_DrawStr(&m1_u8g2, 2, 32, line);
-
-	snprintf(line, sizeof(line), "Count: %lu", (unsigned long)count);
-	u8g2_DrawStr(&m1_u8g2, 2, 42, line);
-
-	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
-	u8g2_DrawBox(&m1_u8g2, 0, 52, 128, 12);
-	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_BG);
-	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
-	u8g2_DrawStr(&m1_u8g2, 2, 61, "Emulating...");
-	u8g2_DrawStr(&m1_u8g2, 86, 61, "Bk:Stop");
-
-	m1_u8g2_nextpage();
-}
-
 /*============================================================================*/
 /**
  * @brief nfc_tool_tag_info - Read NFC tag and display enhanced info
@@ -2499,145 +2405,6 @@ static void nfc_tool_clone_emu(void)
 				break;
 			}
 		}
-	}
-
-	/* Stop emulation */
-	ListenerRequestStop();
-	m1_led_fast_blink(LED_BLINK_ON_RGB, LED_FASTBLINK_PWM_OFF, LED_FASTBLINK_ONTIME_OFF);
-	m1_app_send_q_message(nfc_worker_q_hdl, Q_EVENT_NFC_EMULATE_STOP);
-	vTaskDelay(50);
-}
-
-
-/*============================================================================*/
-/**
- * @brief nfc_tool_fuzzer - NFC UID fuzzer via emulation
- *
- * Cycles through NFC UIDs while emulating, allowing card type selection,
- * direction (increment/decrement), and delay configuration.
- *
- * @retval None
- */
-/*============================================================================*/
-static void nfc_tool_fuzzer(void)
-{
-	S_M1_Buttons_Status bs;
-	S_M1_Main_Q_t q_item;
-	BaseType_t ret;
-
-	uint8_t prof_sel = 0;
-	int8_t dir = 1;
-	uint16_t delay_ms = 500;
-	uint8_t setup_field = 0; /* 0=type, 1=dir, 2=delay */
-	uint8_t uid[10];
-	memset(uid, 0, sizeof(uid));
-	uid[0] = 0x04; /* NXP manufacturer byte */
-
-	/* --- Setup screen --- */
-	nfc_fuzz_draw_setup(prof_sel, uid, nfc_fuzz_profile_uid_len[prof_sel], dir, delay_ms);
-
-	while (1)
-	{
-		ret = xQueueReceive(main_q_hdl, &q_item, portMAX_DELAY);
-		if (ret != pdTRUE) continue;
-
-		if (q_item.q_evt_type != Q_EVENT_KEYPAD) continue;
-
-		ret = xQueueReceive(button_events_q_hdl, &bs, 0);
-		if (ret != pdTRUE) continue;
-
-		if (bs.event[BUTTON_BACK_KP_ID] == BUTTON_EVENT_CLICK)
-		{
-			return; /* Exit to tools menu */
-		}
-		else if (bs.event[BUTTON_OK_KP_ID] == BUTTON_EVENT_CLICK)
-		{
-			break; /* Start fuzzing */
-		}
-		else if (bs.event[BUTTON_UP_KP_ID] == BUTTON_EVENT_CLICK)
-		{
-			if (setup_field == 0) {
-				prof_sel = (prof_sel + 1) % NFC_FUZZ_PROFILE_COUNT;
-				memset(uid, 0, sizeof(uid));
-				uid[0] = 0x04;
-			} else if (setup_field == 1) {
-				dir = (dir > 0) ? -1 : 1;
-			} else {
-				if (delay_ms < 2000) delay_ms += 100;
-			}
-			nfc_fuzz_draw_setup(prof_sel, uid, nfc_fuzz_profile_uid_len[prof_sel], dir, delay_ms);
-		}
-		else if (bs.event[BUTTON_DOWN_KP_ID] == BUTTON_EVENT_CLICK)
-		{
-			if (setup_field == 0) {
-				prof_sel = (prof_sel == 0) ? (NFC_FUZZ_PROFILE_COUNT - 1) : (prof_sel - 1);
-				memset(uid, 0, sizeof(uid));
-				uid[0] = 0x04;
-			} else if (setup_field == 1) {
-				dir = (dir > 0) ? -1 : 1;
-			} else {
-				if (delay_ms > 100) delay_ms -= 100;
-			}
-			nfc_fuzz_draw_setup(prof_sel, uid, nfc_fuzz_profile_uid_len[prof_sel], dir, delay_ms);
-		}
-		else if (bs.event[BUTTON_RIGHT_KP_ID] == BUTTON_EVENT_CLICK)
-		{
-			setup_field = (setup_field + 1) % 3;
-			nfc_fuzz_draw_setup(prof_sel, uid, nfc_fuzz_profile_uid_len[prof_sel], dir, delay_ms);
-		}
-		else if (bs.event[BUTTON_LEFT_KP_ID] == BUTTON_EVENT_CLICK)
-		{
-			setup_field = (setup_field == 0) ? 2 : (setup_field - 1);
-			nfc_fuzz_draw_setup(prof_sel, uid, nfc_fuzz_profile_uid_len[prof_sel], dir, delay_ms);
-		}
-	}
-
-	/* --- Start emulation fuzzing --- */
-	uint8_t uid_len = nfc_fuzz_profile_uid_len[prof_sel];
-	uint32_t count = 0;
-
-	/* Set initial emulator parameters */
-	Emu_SetNfcA(uid, uid_len,
-	            nfc_fuzz_profile_atqa[prof_sel][0],
-	            nfc_fuzz_profile_atqa[prof_sel][1],
-	            nfc_fuzz_profile_sak[prof_sel]);
-
-	m1_led_fast_blink(LED_BLINK_ON_RGB, LED_FASTBLINK_PWM_M, LED_FASTBLINK_ONTIME_M);
-	m1_app_send_q_message(nfc_worker_q_hdl, Q_EVENT_NFC_START_EMULATE);
-	vTaskDelay(50);
-
-	nfc_fuzz_draw_running(prof_sel, uid, uid_len, count);
-
-	/* Fuzzing loop: use timed queue receive for delay between UID steps */
-	bool running = true;
-	while (running)
-	{
-		ret = xQueueReceive(main_q_hdl, &q_item, pdMS_TO_TICKS(delay_ms));
-		if (ret == pdTRUE)
-		{
-			if (q_item.q_evt_type == Q_EVENT_KEYPAD)
-			{
-				ret = xQueueReceive(button_events_q_hdl, &bs, 0);
-				if (ret == pdTRUE && bs.event[BUTTON_BACK_KP_ID] == BUTTON_EVENT_CLICK)
-				{
-					running = false;
-					break;
-				}
-			}
-			continue;   /* an event woke us, not the timer — don't advance the UID */
-		}
-
-		/* Timeout = step to next UID */
-		nfc_fuzz_uid_step(uid, uid_len, dir);
-		count++;
-
-		/* Update emulator with new UID (live update, no stop/start needed) */
-		Emu_SetNfcA(uid, uid_len,
-		            nfc_fuzz_profile_atqa[prof_sel][0],
-		            nfc_fuzz_profile_atqa[prof_sel][1],
-		            nfc_fuzz_profile_sak[prof_sel]);
-
-		nfc_fuzz_draw_running(prof_sel, uid, uid_len, count);
 	}
 
 	/* Stop emulation */
@@ -2996,9 +2763,8 @@ void nfc_tools(void)
 				{
 					case 0: nfc_tool_tag_info();     break;
 					case 1: nfc_tool_clone_emu();    break;
-					case 2: nfc_tool_fuzzer();       break;
-					case 3: nfc_utils_write_uid_run(); break;
-					case 4: nfc_utils_wipe_tag_run();  break;
+					case 2: nfc_utils_write_uid_run(); break;
+					case 3: nfc_utils_wipe_tag_run();  break;
 					default: break;
 				}
 				/* Redraw submenu after returning from a tool */
