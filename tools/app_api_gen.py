@@ -1,0 +1,232 @@
+#!/usr/bin/env python3
+"""
+app_api_gen.py — generate the M1 app-API export surface from the firmware's
+public subsystem headers, so every app-facing function is exported without
+hand-maintaining the table in m1_app_api.c (and without it silently drifting
+out of sync with the SDK header apps build against).
+
+WHY THIS EXISTS
+    Apps are relocatable ELFs whose undefined symbols are resolved BY NAME at
+    load time against a table in the firmware (m1_app_api.c). That table was
+    hand-written, so every new capability an app wanted meant editing the table
+    and reflashing the M1. This generator makes the table (and the SDK header)
+    a build product of a curated set of PUBLIC HEADERS instead.
+
+SOURCE OF TRUTH
+    PUBLIC_HEADERS below — the app-facing subsystem headers. Add a header here
+    and all its public functions become callable from apps. Internal transport/
+    bootloader/HAL headers are deliberately excluded.
+
+OUTPUTS (only written when run without --dry-run)
+    m1_csrc/m1_app_api_generated.inc   FW table entries: { "name", (void*)name },
+    <sdk>/include/m1app_generated.h     matching `extern` prototypes for apps
+
+PRESERVED, NOT TOUCHED
+    The hand-written entries[] in m1_app_api.c keep the special cases the
+    generator can't derive: name!=symbol aliases/wrappers (m1app_display_flush
+    -> m1_u8g2_nextpage, badusb_type_string -> badusb_type_string_forced), the
+    C-library shims, and the grouped-dispatch umbrellas. The generator skips any
+    name already present there (dedup by name) and anything matching EXCLUDE.
+
+FLASH NOTE
+    Referencing a function in the table pins it against --gc-sections. Keep
+    PUBLIC_HEADERS to genuine app-facing subsystems so the image doesn't retain
+    dead internal code. Watch the FLASH % after a build.
+"""
+
+import argparse
+import os
+import re
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.normpath(os.path.join(HERE, ".."))
+CSRC = os.path.join(ROOT, "m1_csrc")
+API_C = os.path.join(CSRC, "m1_app_api.c")
+GEN_INC = os.path.join(CSRC, "m1_app_api_generated.inc")
+SDK_HDR_DEFAULT = os.path.normpath(
+    os.path.join(HERE, "..", "..", "m1os-sdk", "include", "m1app_generated.h"))
+
+# --- App-facing subsystem headers (the curated public API surface) -----------
+# Add a header here to export its public functions to apps. NOT included on
+# purpose: m1_rpc.h / m1_link.h / m1_esp32_hal.h (transport), m1_fw_update*.h /
+# m1_fw_update_bl.h (bootloader), m1_menu.h (menu glue), HAL/CMSIS headers.
+# Paths are relative to the M1OS repo root (headers live in several dirs).
+PUBLIC_HEADERS = [
+    "m1_csrc/m1_nfc.h",
+    "m1_csrc/m1_badusb.h",
+    "m1_csrc/m1_infrared.h",
+    "m1_csrc/m1_ir_remote.h",
+    "m1_csrc/m1_ir_universal.h",
+    "m1_csrc/m1_gpio.h",
+    "m1_csrc/m1_storage.h",
+    "m1_csrc/m1_esp_client.h",
+    "m1_csrc/m1_led_indicator.h",
+    "m1_csrc/m1_buzzer.h",
+    "m1_csrc/ir_file.h",
+    "m1_csrc/ff_file.h",
+    "Sub_Ghz/m1_sub_ghz_api.h",
+    "lfrfid/lfrfid.h",
+    "lfrfid/lfrfid_file.h",
+]
+
+# Never export a symbol whose name matches one of these (lifecycle / ISR / glue
+# / internal). Apps get capabilities, not init/teardown or interrupt handlers.
+EXCLUDE_RE = re.compile(
+    r"(^menu_)|(^HAL_)|(^TIM_)|(^_)|"
+    r"(_init$)|(_deinit$)|(_Init$)|(_DeInit$)|"
+    r"(_IRQHandler$)|(_irqhandler$)|(_task$)|(_Task$)|(_isr$)|(_ISR$)|"
+    r"(_Callback$)|(_callback$)|"
+    r"(_gui_update$)|(_xkey_handler$)"          # menu-render / key glue, not app-safe
+)
+
+# Explicit one-off exclusions (symbols that don't link cleanly outside their
+# build variant, or are unsafe from an app context). Add here as builds reveal.
+EXCLUDE_NAMES = {
+    "radio_patch_reinit",   # declared in a Sub-GHz header but not defined in this build
+}
+
+
+def strip_comments(text):
+    text = re.sub(r"/\*.*?\*/", " ", text, flags=re.S)
+    text = re.sub(r"//[^\n]*", " ", text)
+    return text
+
+
+# Prototypes touching these firmware-internal types are exported (FW .inc) but
+# left out of the app-safe SDK header, since apps don't have the type defs.
+FW_TYPE_RE = re.compile(
+    r"\bS_M1_\w+|\bLFRFID\w*|\bir_file_\w+|\bff_file_t\b|\bFIL\b|\bFILINFO\b|"
+    r"\bu8g2_\w+|\bIRMP_DATA\b|\bir_universal_\w+|\brfid_\w+_t\b|"
+    r"\bsubghz_\w+_t\b|\bS_RPC\w*|\bGPIO_\w+"
+)
+
+# A prototype statement, once whitespace-collapsed: <ret...> name ( args )
+_PROTO = re.compile(
+    r"^(?:extern\s+)?"
+    r"[A-Za-z_][\w\s\*]*?[\s\*]"     # return type (ends in space or '*')
+    r"([A-Za-z_]\w*)\s*"             # function name  (group 1)
+    r"\(([^()]*)\)$"                 # ( args ) with no nested parens
+)
+
+
+def parse_header(path):
+    """Return [(name, prototype)] for the public functions declared in a header.
+    `prototype` is the cleaned, single-line `ret name(args)` (no trailing ;)."""
+    raw = open(path, encoding="utf-8", errors="replace").read()
+    raw = strip_comments(raw)
+    raw = re.sub(r"^\s*#.*$", " ", raw, flags=re.M)   # drop preprocessor lines
+    raw = re.sub(r"\s+", " ", raw)                     # collapse whitespace
+    out = []
+    for stmt in raw.split(";"):
+        stmt = stmt.strip()
+        if not stmt or stmt.startswith("typedef") or "{" in stmt:
+            continue
+        m = _PROTO.match(stmt)
+        if not m:
+            continue
+        name = m.group(1)
+        if name in ("if", "for", "while", "switch", "return", "sizeof"):
+            continue
+        out.append((name, stmt))
+    return out
+
+
+def existing_manual_names():
+    """Names already listed by hand in m1_app_api.c entries[] (to dedup)."""
+    txt = open(API_C, encoding="utf-8", errors="replace").read()
+    return set(re.findall(r'\{\s*"([A-Za-z_]\w*)"\s*,', txt))
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--dry-run", action="store_true",
+                    help="report what would be exported; write nothing")
+    ap.add_argument("--sdk-header", default=SDK_HDR_DEFAULT,
+                    help="path to write the generated SDK extern header")
+    args = ap.parse_args()
+
+    manual = existing_manual_names()
+    seen = set()
+    exported = []          # (name, header, prototype) preserving discovery order
+    skipped_excluded = []
+    per_header = {}
+
+    for hdr in PUBLIC_HEADERS:
+        path = os.path.join(ROOT, hdr)
+        if not os.path.isfile(path):
+            print(f"  WARN: missing header {hdr}", file=sys.stderr)
+            continue
+        count = 0
+        for name, proto in parse_header(path):
+            if name in seen:
+                continue
+            seen.add(name)
+            if name in manual:
+                continue                       # already hand-exported
+            if name in EXCLUDE_NAMES or EXCLUDE_RE.search(name):
+                skipped_excluded.append(name)
+                continue
+            exported.append((name, hdr, proto))
+            count += 1
+        per_header[hdr] = count
+
+    print("=== app_api_gen ===")
+    print(f"  already hand-exported : {len(manual)}")
+    for hdr in PUBLIC_HEADERS:
+        if hdr in per_header:
+            print(f"  {hdr:24s} +{per_header[hdr]}")
+    print(f"  NEW auto-exported     : {len(exported)}")
+    print(f"  excluded by rule      : {len(skipped_excluded)}")
+    print(f"  => total table size    : {len(manual) + len(exported)}")
+
+    if args.dry_run:
+        print("\n  (dry run — nothing written)")
+        print("  new symbols:")
+        for name, hdr, _proto in exported:
+            print(f"    {name}  [{hdr}]")
+        return 0
+
+    # --- FW table include ----------------------------------------------------
+    with open(GEN_INC, "w", encoding="utf-8", newline="\n") as f:
+        f.write("/* AUTO-GENERATED by tools/app_api_gen.py — DO NOT EDIT.\n")
+        f.write(" * Regenerate after changing a public header. Entries here are\n")
+        f.write(" * merged into entries[] in m1_app_api.c. */\n")
+        for name, hdr, _proto in exported:
+            f.write(f'    {{ "{name}", (void *){name} }},\n')
+    print(f"\n  wrote {GEN_INC}  ({len(exported)} entries)")
+
+    # --- SDK extern header ---------------------------------------------------
+    # We emit an opaque-prototype header so apps can *link* against these names.
+    # Real prototypes live in the FW headers; this mirror is address-only, so
+    # apps that need the exact signature should include the subsystem header.
+    with open(args.sdk_header, "w", encoding="utf-8", newline="\n") as f:
+        f.write("/* AUTO-GENERATED by tools/app_api_gen.py — DO NOT EDIT.\n")
+        f.write(" * Every app-facing firmware symbol, exported by name. */\n")
+        f.write("#ifndef M1APP_GENERATED_H_\n#define M1APP_GENERATED_H_\n\n")
+        f.write("/* Every symbol below is exported by the firmware and callable\n")
+        f.write(" * from an app. Functions whose signatures use firmware-internal\n")
+        f.write(" * types (S_M1_*, LFRFID_*, ir_file_*, FatFS) are exported too but\n")
+        f.write(" * omitted here — declare their prototype in your app to call them. */\n")
+        f.write("#include <stdint.h>\n#include <stdbool.h>\n#include <stddef.h>\n")
+        cur = None
+        omitted = 0
+        for name, hdr, proto in exported:
+            # Skip prototypes referencing FW-internal types apps don't have.
+            if FW_TYPE_RE.search(proto):
+                omitted += 1
+                continue
+            if hdr != cur:
+                f.write(f"\n/* --- {hdr} --- */\n")
+                cur = hdr
+            decl = proto if proto.startswith("extern ") else "extern " + proto
+            f.write(decl + ";\n")
+        f.write("\n#endif /* M1APP_GENERATED_H_ */\n")
+    print(f"  ({omitted} of {len(exported)} omitted from SDK header: FW-type signatures)")
+    print(f"  wrote {args.sdk_header}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

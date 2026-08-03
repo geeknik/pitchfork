@@ -61,6 +61,14 @@
 #include "lfrfid_file.h"       /* lfrfid_profile_load/save, lfrfid_get_protocol_by_name */
 #include "m1_usb_cdc_msc.h"
 #include "m1_badusb.h"
+/* Headers for the auto-generated export block (tools/app_api_gen.py). */
+#include "m1_ir_universal.h"
+#include "m1_gpio.h"
+#include "m1_storage.h"
+#include "m1_led_indicator.h"
+#include "m1_buzzer.h"
+#include "m1_sub_ghz_api.h"
+#include "lfrfid.h"
 
 /* Core ESP readiness flag (defined in esp_app_main.c, declared in esp_app_main.h
  * which lives outside m1_csrc). Exposed to apps so a ported feature gates on the
@@ -740,6 +748,11 @@ void m1_app_api_init(void)
         { "m1_esp_client_now_get_peers",   (void *)m1_esp_client_now_get_peers },
         { "m1_esp_client_now_send",        (void *)m1_esp_client_now_send },
         { "m1_esp_client_now_recv",        (void *)m1_esp_client_now_recv },
+
+        /* Auto-generated app-facing surface (tools/app_api_gen.py) — every
+         * public function from the subsystem headers not already listed above.
+         * Regenerate after touching a public header; never edit .inc by hand. */
+#include "m1_app_api_generated.inc"
     };
 
     uint16_t num_entries = sizeof(entries) / sizeof(entries[0]);
