@@ -86,6 +86,23 @@ add_executable(${CMAKE_PROJECT_NAME})
 # Add STM32CubeMX generated sources
 add_subdirectory(cmake/m1_01)
 
+# --- Auto-generate the app-API export table before building --------------------
+# tools/app_api_gen.py regenerates m1_csrc/m1_app_api_generated.inc (and the SDK
+# header) from the curated public subsystem headers, so the app-facing symbol
+# surface can't silently drift from what the firmware exports. It writes only
+# when content changes (--quiet), so a no-op run touches nothing and never forces
+# a recompile. Runs before m1_app_api.c is compiled (part of the executable).
+# Skipped for the minimal Recovery/Restore variants, which omit the app runtime.
+if(NOT RECOVERY)
+    add_custom_target(gen_app_api
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/app_api_gen.py --quiet
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Regenerating app-API export table (app_api_gen.py)"
+        VERBATIM
+    )
+    add_dependencies(${CMAKE_PROJECT_NAME} gen_app_api)
+endif()
+
 # Link directories setup
 target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined library search paths
