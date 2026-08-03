@@ -51,20 +51,25 @@ SDK_HDR_DEFAULT = os.path.normpath(
 # Add a header here to export its public functions to apps. NOT included on
 # purpose: m1_rpc.h / m1_link.h / m1_esp32_hal.h (transport), m1_fw_update*.h /
 # m1_fw_update_bl.h (bootloader), m1_menu.h (menu glue), HAL/CMSIS headers.
-# Paths are relative to the M1OS repo root (headers live in several dirs).
-PUBLIC_HEADERS = [
-    "m1_csrc/m1_nfc.h",
-    "m1_csrc/m1_badusb.h",
-    "m1_csrc/m1_infrared.h",
-    "m1_csrc/m1_ir_remote.h",
-    "m1_csrc/m1_ir_universal.h",
-    "m1_csrc/m1_gpio.h",
-    "m1_csrc/m1_storage.h",
-    "m1_csrc/m1_esp_client.h",
-    "m1_csrc/m1_led_indicator.h",
-    "m1_csrc/m1_buzzer.h",
-    "m1_csrc/ir_file.h",
-    "m1_csrc/ff_file.h",
+# "All app-facing headers": every header in m1_csrc/ is scanned, EXCEPT the
+# non-API internals below (transport, bootloader, menu-render, HAL/board glue,
+# task/ISR plumbing) — exporting those would only pin dead code / fail to link.
+# The Sub-GHz and lfrfid trees are mostly per-protocol register/codec internals,
+# so their app-facing API headers are added explicitly via EXTRA_HEADERS instead
+# of scanning those dirs wholesale.
+SCAN_DIRS = ["m1_csrc"]
+
+# m1_csrc headers that are NOT app API (matched on basename).
+HEADER_EXCLUDE_RE = re.compile(
+    r"^(m1_rpc|m1_link|m1_esp_rpc|m1_esp32_hal|m1_esp32_fw_update|m1_qmon_relay|"
+    r"m1_fw_update|m1_fw_update_bl|m1_menu|m1_gui|m1_app_manager|m1_elf_loader|"
+    r"m1_app_api|m1_int_hdl|m1_tasks|m1_display_data|m1_core_config|m1_cli|"
+    r"m1_cli_help|m1_at_|m1_esp_hosted_dummy|m1_fusb302|m1_bq2|logger|Res_String|"
+    r"bit_util|m1_i2c$)"
+)
+
+# App-facing API headers outside m1_csrc (Sub-GHz / lfrfid), added explicitly.
+EXTRA_HEADERS = [
     "Sub_Ghz/m1_sub_ghz_api.h",
     "lfrfid/lfrfid.h",
     "lfrfid/lfrfid_file.h",
@@ -82,8 +87,34 @@ EXCLUDE_RE = re.compile(
 
 # Explicit one-off exclusions (symbols that don't link cleanly outside their
 # build variant, or are unsafe from an app context). Add here as builds reveal.
+# Declared in a public header but NOT defined/linkable in this build variant
+# (transport, SPI-slave, cmd-handler, recovery, SD-manager internals). The build
+# rejects these — they aren't real app-callable functions, so they can't be
+# exported. Surfaced as "undefined reference" and added here.
 EXCLUDE_NAMES = {
-    "radio_patch_reinit",   # declared in a Sub-GHz header but not defined in this build
+    "radio_patch_reinit",
+    "cmd_handler_dispatch", "cmd_handler_log_pending", "cmd_handler_push_log",
+    "fs_save_file_safe", "get_power_status", "m1_fb_popup",
+    "m1_recovery_screen_show", "m1_sdm_close_file", "m1_sdm_close_files",
+    "power_test_charger", "spi_slave_assert_data_ready",
+    "spi_slave_deassert_data_ready", "spi_slave_get_handle",
+    "spi_slave_notify_log_available", "spi_slave_process",
+    "spi_slave_send_error", "spi_slave_send_response",
+    "usart_get_rx_data_length", "usb_rxdata_process",
+}
+
+# Built-in feature handlers that are now delivered as APPS (primitive-based
+# reimplementations) and were removed from their menus. Nothing else references
+# them, so exporting was the only thing pinning their code — dropping them lets
+# --gc-sections reclaim it. Verified against nm -u over every .m1app: no app
+# calls these (the apps use the m1_nfc_* / lfrfid primitives instead). If a
+# future app needs one, it becomes a thin-wrapper target and gets re-added.
+EXCLUDE_NAMES |= {
+    "nfc_detect_reader",   # -> Field Detector app
+    "nfc_extra_actions",   # -> NFC Write / Unlock / Emulate / Fuzzer apps
+    "nfc_add_manually",    # -> NFC Create app
+    "nfc_tools",           # -> the individual NFC apps
+    "rfid_125khz_utilities",  # -> RFID Erase / T5577 Info / Fuzzer / Brute apps
 }
 
 
@@ -166,13 +197,23 @@ def main():
                     help="only print on change/warning (for build integration)")
     args = ap.parse_args()
 
+    # Build the header list: every .h in SCAN_DIRS minus non-API internals,
+    # plus the explicit EXTRA_HEADERS.
+    headers = []
+    for d in SCAN_DIRS:
+        dpath = os.path.join(ROOT, d)
+        for fn in sorted(os.listdir(dpath)):
+            if fn.endswith(".h") and not HEADER_EXCLUDE_RE.match(fn):
+                headers.append(os.path.join(d, fn).replace("\\", "/"))
+    headers += EXTRA_HEADERS
+
     manual = existing_manual_names()
     seen = set()
     exported = []          # (name, header, prototype) preserving discovery order
     skipped_excluded = []
     per_header = {}
 
-    for hdr in PUBLIC_HEADERS:
+    for hdr in headers:
         path = os.path.join(ROOT, hdr)
         if not os.path.isfile(path):
             print(f"  WARN: missing header {hdr}", file=sys.stderr)
@@ -193,10 +234,11 @@ def main():
 
     if not args.quiet:
         print("=== app_api_gen ===")
+        print(f"  headers scanned       : {len(headers)}")
         print(f"  already hand-exported : {len(manual)}")
-        for hdr in PUBLIC_HEADERS:
-            if hdr in per_header:
-                print(f"  {hdr:26s} +{per_header[hdr]}")
+        for hdr in headers:
+            if per_header.get(hdr):
+                print(f"  {hdr:34s} +{per_header[hdr]}")
         print(f"  NEW auto-exported     : {len(exported)}")
         print(f"  excluded by rule      : {len(skipped_excluded)}")
         print(f"  => total table size    : {len(manual) + len(exported)}")
@@ -214,6 +256,16 @@ def main():
            " * merged into entries[] in m1_app_api.c. */"]
     inc += [f'    {{ "{name}", (void *){name} }},' for name, _h, _p in exported]
     write_if_changed(GEN_INC, "\n".join(inc) + "\n", args.quiet)
+
+    # --- include list so m1_app_api.c has every scanned header's decls ---------
+    used_hdrs = []
+    for _n, h, _p in exported:
+        if h not in used_hdrs:
+            used_hdrs.append(h)
+    incs = ["/* AUTO-GENERATED by tools/app_api_gen.py — DO NOT EDIT. */"]
+    incs += [f'#include "{os.path.basename(h)}"' for h in used_hdrs]
+    write_if_changed(os.path.join(CSRC, "m1_app_api_includes.inc"),
+                     "\n".join(incs) + "\n", args.quiet)
 
     # --- SDK extern header (skipped gracefully if the SDK tree isn't present) -
     sdk_dir = os.path.dirname(args.sdk_header)

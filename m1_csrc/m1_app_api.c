@@ -61,14 +61,10 @@
 #include "lfrfid_file.h"       /* lfrfid_profile_load/save, lfrfid_get_protocol_by_name */
 #include "m1_usb_cdc_msc.h"
 #include "m1_badusb.h"
-/* Headers for the auto-generated export block (tools/app_api_gen.py). */
-#include "m1_ir_universal.h"
-#include "m1_gpio.h"
-#include "m1_storage.h"
-#include "m1_led_indicator.h"
-#include "m1_buzzer.h"
-#include "m1_sub_ghz_api.h"
-#include "lfrfid.h"
+/* Headers for the auto-generated export block (tools/app_api_gen.py). The full
+ * per-header include list is itself generated, so every scanned subsystem's
+ * declarations are in scope for the generated table below. */
+#include "m1_app_api_includes.inc"
 
 /* Core ESP readiness flag (defined in esp_app_main.c, declared in esp_app_main.h
  * which lives outside m1_csrc). Exposed to apps so a ported feature gates on the
