@@ -44,6 +44,16 @@ ROOT = os.path.normpath(os.path.join(HERE, ".."))
 CSRC = os.path.join(ROOT, "m1_csrc")
 API_C = os.path.join(CSRC, "m1_app_api.c")
 GEN_INC = os.path.join(CSRC, "m1_app_api_generated.inc")
+INC_INC = os.path.join(CSRC, "m1_app_api_includes.inc")
+
+# Reachability filter. A function is only exported if it is genuinely ALIVE —
+# i.e. it survives in the firmware image WITHOUT the auto-export rooting it
+# (reached from a menu/main, or already rooted by a hand-listed / app-used
+# symbol). Exporting a header-declared function that nothing else references
+# would pin dead code against --gc-sections (e.g. built-in feature handlers now
+# replaced by apps). This file is the list of alive symbols, produced by a
+# no-auto-export build (M1_API_GEN_EMPTY=1) + `nm`; see tools/gen_alive.sh.
+ALIVE_FILE = os.path.join(HERE, "app_api_alive.txt")
 SDK_HDR_DEFAULT = os.path.normpath(
     os.path.join(HERE, "..", "..", "m1os-sdk", "include", "m1app_generated.h"))
 
@@ -197,6 +207,22 @@ def main():
                     help="only print on change/warning (for build integration)")
     args = ap.parse_args()
 
+    # Base-build mode: emit empty outputs so the firmware links with only the
+    # hand-listed + app-used exports. `nm` on that image gives the ALIVE set.
+    if os.environ.get("M1_API_GEN_EMPTY"):
+        note = "/* AUTO-GENERATED (M1_API_GEN_EMPTY): no auto-exports this build. */\n"
+        write_if_changed(GEN_INC, note, args.quiet)
+        write_if_changed(INC_INC, note, args.quiet)
+        if not args.quiet:
+            print("  (empty mode — reachability base build)")
+        return 0
+
+    # Reachability filter: only export functions that are alive without the
+    # auto-export. Absent file (first run) => no filter.
+    alive = None
+    if os.path.isfile(ALIVE_FILE):
+        alive = set(open(ALIVE_FILE, encoding="utf-8").read().split())
+
     # Build the header list: every .h in SCAN_DIRS minus non-API internals,
     # plus the explicit EXTRA_HEADERS.
     headers = []
@@ -227,6 +253,9 @@ def main():
                 continue                       # already hand-exported
             if name in EXCLUDE_NAMES or EXCLUDE_RE.search(name):
                 skipped_excluded.append(name)
+                continue
+            if alive is not None and name not in alive:
+                skipped_excluded.append(name)   # dead: only the export would pin it
                 continue
             exported.append((name, hdr, proto))
             count += 1
