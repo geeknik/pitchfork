@@ -19,6 +19,7 @@ void nfc_saved(void);
 void nfc_extra_actions(void);
 void nfc_add_manually(void);
 void nfc_tools(void);
+void nfc_tool_tag_info(void);   /* standalone Tag Info (exported as nfc_tag_info) */
 
 void menu_nfc_init(void);
 void menu_nfc_deinit(void);

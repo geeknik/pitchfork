@@ -44,7 +44,7 @@ if(RECOVERY)
         set(CMAKE_PROJECT_NAME M1_Recovery_C3.1.0)
     endif()
 else()
-    set(CMAKE_PROJECT_NAME M1OS_1.1.72.0)
+    set(CMAKE_PROJECT_NAME M1OS_1.1.75.0)
 endif()
 
 # Include toolchain file

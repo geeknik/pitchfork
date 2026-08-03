@@ -109,35 +109,20 @@ S_M1_Menu_t menu_NFC_Read =
     "Read", nfc_read, NULL, NULL, 0, 0, NULL, NULL, NULL
 };
 
-S_M1_Menu_t menu_NFC_Detect_Reader =
-{
-    "Detect Reader", nfc_detect_reader, NULL, NULL, 0, 0, NULL, NULL, NULL
-};
-
 S_M1_Menu_t menu_NFC_Saved =
 {
     "Saved", nfc_saved, NULL, NULL, 0, 0, NULL, NULL, NULL
 };
 
-S_M1_Menu_t menu_NFC_Extra_Actions =
-{
-    "Extra Actions", nfc_extra_actions, NULL, NULL, 0, 0, NULL, NULL, NULL
-};
-
-S_M1_Menu_t menu_NFC_Add_Manually =
-{
-    "Add Manually", nfc_add_manually, NULL, NULL, 0, 0, NULL, NULL, NULL
-};
-
-S_M1_Menu_t menu_NFC_Tools =
-{
-    "Tools", nfc_tools, NULL, NULL, 0, 0, NULL, NULL, NULL
-};
-
+/* NFC mirrors RFID / Sub-GHz: only the core scan/browse ops (Read / Saved) are
+ * built-in. The stock "Tools" submenu bundled Tag Info / Clone-Emulate / Fuzzer
+ * / Write UID / Wipe — those ship as nfc-tagged .m1app apps (Emulate, Create,
+ * Write, Unlock, Fuzzer, Field Detector) that auto-append into this folder,
+ * exactly like RFID's "Utilities" were app-ified rather than kept built-in. */
 S_M1_Menu_t menu_NFC =
 {
-    "NFC", &menu_nfc_init, menu_nfc_deinit, NULL, 6, 0, menu_m1_icon_nfc, NULL,
-    {&menu_NFC_Read, &menu_NFC_Detect_Reader, &menu_NFC_Saved, &menu_NFC_Extra_Actions, &menu_NFC_Add_Manually, &menu_NFC_Tools }
+    "NFC", &menu_nfc_init, menu_nfc_deinit, NULL, 2, 0, menu_m1_icon_nfc, NULL,
+    {&menu_NFC_Read, &menu_NFC_Saved }
 };
 
 /*----------------------------- > Infrared -----------------------------------*/
@@ -662,7 +647,7 @@ static const menu_cat_t k_cats[] = {
     { "bluetooth", "Bluetooth", menu_m1_icon_bluetooth, &menu_Bluetooth },
     { "subghz",    "Sub-GHz",   menu_m1_icon_wave,      &menu_Sub_GHz   },
     { "rfid",      "RFID",      menu_m1_icon_rfid,      &menu_125KHz_RFID },
-    { "nfc",       "NFC",       menu_m1_icon_nfc,       NULL            },
+    { "nfc",       "NFC",       menu_m1_icon_nfc,       &menu_NFC       },
     { "ir",        "Infrared",  menu_m1_icon_infrared,  &menu_Infrared  },
     { "gpio",      "GPIO",      menu_m1_icon_gpio,      &menu_GPIO      },
     { "games",     "Games",     menu_m1_icon_games,     NULL            },

@@ -603,6 +603,7 @@ void m1_app_api_init(void)
         { "m1_nfc_ntag_pwd_auth",     (void *)m1_nfc_ntag_pwd_auth },
         { "m1_nfc_ntag_write_page",   (void *)m1_nfc_ntag_write_page },
         { "m1_nfc_mifare_read_block", (void *)m1_nfc_mifare_read_block },
+        { "nfc_tag_info",             (void *)nfc_tool_tag_info },
         { "m1_nfc_emulate_uid",       (void *)m1_nfc_emulate_uid },
         { "m1_nfc_emulate_ntag",      (void *)m1_nfc_emulate_ntag },
         { "m1_nfc_emulate_uid_update",(void *)m1_nfc_emulate_uid_update },
@@ -649,6 +650,7 @@ void m1_app_api_init(void)
         { "sub_ghz_remote_entry",       (void *)sub_ghz_remote_entry },
 
         /* ===== USB HID (BadUSB) ===== */
+        { "badusb_run",              (void *)badusb_run },
         { "m1_usb_switch_to_hid",    (void *)m1_usb_switch_to_hid },
         { "m1_usb_switch_to_normal", (void *)m1_usb_switch_to_normal },
         { "m1_usb_get_state",        (void *)m1_usb_get_state },

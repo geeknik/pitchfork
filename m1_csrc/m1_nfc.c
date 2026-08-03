@@ -2182,7 +2182,7 @@ static void nfc_fuzz_draw_running(uint8_t prof_sel, const uint8_t *uid, uint8_t 
  * @retval None
  */
 /*============================================================================*/
-static void nfc_tool_tag_info(void)
+void nfc_tool_tag_info(void)
 {
 	S_M1_Buttons_Status bs;
 	S_M1_Main_Q_t q_item;
