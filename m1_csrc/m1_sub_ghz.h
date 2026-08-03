@@ -152,14 +152,14 @@ void sub_ghz_weather_station(void);
 void sub_ghz_brute_force(void);
 void sub_ghz_rssi_meter(void);
 void sub_ghz_freq_scanner(void);
-uint8_t sub_ghz_replay_flipper_file(const char *sub_path);
+uint8_t sub_ghz_replay_ff_file(const char *sub_path);
 
 /**
  * @brief  Replay an M1 native .sgh NOISE file directly without conversion.
  *
- * Bypasses the temp-file conversion path used by sub_ghz_replay_flipper_file()
+ * Bypasses the temp-file conversion path used by sub_ghz_replay_ff_file()
  * and feeds the original .sgh file straight into the streaming engine.
- * Use this whenever flipper_subghz_signal_t::is_m1_native is true and the
+ * Use this whenever subghz_file_signal_t::is_m1_native is true and the
  * type is FLIPPER_SUBGHZ_TYPE_RAW.
  *
  * @param  sgh_path   Path to the .sgh NOISE file (e.g. "/SUBGHZ/foo.sgh")
@@ -192,7 +192,7 @@ uint8_t sub_ghz_replay_datafile(const char *sgh_path, uint32_t frequency, uint8_
  *      call is safe — continue_async() returns DONE immediately when no replay
  *      is active.
  *
- * Blocking wrappers (sub_ghz_replay_flipper_file / sub_ghz_replay_datafile)
+ * Blocking wrappers (sub_ghz_replay_ff_file / sub_ghz_replay_datafile)
  * are reimplemented on top of these primitives plus a private mini event
  * loop, so the Saved-PACKET emulate path and Playlist behaviour are
  * unchanged.
@@ -234,7 +234,7 @@ uint8_t sub_ghz_replay_prepare_datafile(const char *sgh_path,
  *                       TX completion / abort.
  *
  * @retval 0 = success, 1 = invalid args, non-zero otherwise = same error code set as
- *         sub_ghz_replay_flipper_file()
+ *         sub_ghz_replay_ff_file()
  */
 uint8_t sub_ghz_replay_prepare_flipper(const char *sub_path,
                                        const char **out_tmp_path);
@@ -295,7 +295,7 @@ bool sub_ghz_replay_async_is_active(void);
 
 /**
  * @brief  Set the button-override slot consumed by the next
- *         sub_ghz_replay_prepare_flipper() / sub_ghz_replay_flipper_file()
+ *         sub_ghz_replay_prepare_flipper() / sub_ghz_replay_ff_file()
  *         call.
  *
  * Used by the Transmitter scene to implement LEFT/RIGHT button cycling
@@ -318,6 +318,24 @@ void sub_ghz_replay_set_button_override(int8_t button_index);
 
 /* Scene-based UI entry point (new Flipper-inspired architecture) */
 void sub_ghz_scene_entry(void);
+
+/* Populate the freq/mod label arrays (idempotent). Called by the scene runner so
+ * every entry path has non-NULL labels — see subghz_init_labels_ext() in .c. */
+void subghz_init_labels_ext(void);
+
+/* Per-feature entry points — launch the scene engine directly at one scene so a
+ * built-in menu leaf or a Sub-GHz .m1app drops straight into it (BACK exits to the
+ * M1 menu). Core built-ins: Read / Read Raw / Saved / Add. Apps: Proto Pirate /
+ * Playlist / Bind Remote. */
+void sub_ghz_read_entry(void);
+void sub_ghz_read_raw_entry(void);
+void sub_ghz_saved_entry(void);
+void sub_ghz_add_entry(void);
+void sub_ghz_radio_settings_entry(void);   /* freq/mod/hop/TX power/ISM region + disable */
+void sub_ghz_proto_pirate_entry(void);
+void sub_ghz_playlist_entry(void);
+void sub_ghz_bind_entry(void);
+void sub_ghz_remote_entry(void);   /* multi-button remote — load or create on-device */
 
 extern EXTI_HandleTypeDef 	si4463_exti_hdl;
 extern TIM_HandleTypeDef   	timerhdl_subghz_tx;

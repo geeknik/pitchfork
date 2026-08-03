@@ -463,6 +463,8 @@ set(M1_SRCS
     ../../m1_csrc/m1_md5_hash.c
     ../../m1_csrc/m1_menu.c
     ../../m1_csrc/m1_nfc.c
+    ../../m1_csrc/m1_nfc_api.c
+    ../../m1_csrc/m1_rfid_api.c
     ../../m1_csrc/m1_power_ctl.c
     ../../m1_csrc/m1_rf_spi.c
     ../../m1_csrc/m1_rfid.c
@@ -607,17 +609,17 @@ set(M1_SRCS
     ../../m1_csrc/privateprofilestring.c
     ../../m1_csrc/uiView.c
     # === Enhanced firmware: Flipper file format parsers (Phase 2) ===
-    ../../m1_csrc/flipper_file.c
-    ../../m1_csrc/flipper_ir.c
-    ../../m1_csrc/flipper_subghz.c
-    ../../m1_csrc/flipper_nfc.c
-    ../../m1_csrc/flipper_rfid.c
+    ../../m1_csrc/ff_file.c
+    ../../m1_csrc/ir_file.c
+    ../../m1_csrc/subghz_file.c
+    ../../m1_csrc/nfc_fmt.c
+    ../../m1_csrc/rfid_file.c
     # === Enhanced firmware: Universal Remote + Crypto (Phase 3+5) ===
     ../../m1_csrc/m1_ir_universal.c
+    ../../m1_csrc/m1_ir_remote.c
     ../../m1_csrc/m1_crypto.c
     ../../m1_csrc/m1_wifi_cred.c
     # === Enhanced firmware: Flipper integration (Phase 6) ===
-    ../../m1_csrc/m1_flipper_integration.c
     # === Enhanced firmware: BadUSB (Phase 7) ===
     ../../USB/Class/HID/Src/usbd_hid.c
     ../../m1_csrc/m1_badusb.c
@@ -701,11 +703,13 @@ if(RECOVERY)
         ../../NFC/NFC_drv/legacy/picopass/picopass_listener.c
         ../../NFC/app_x-cube-nfcx.c
         ../../m1_csrc/m1_nfc.c
+        ../../m1_csrc/m1_nfc_api.c
+        ../../m1_csrc/m1_rfid_api.c
         ../../m1_csrc/m1_rfid.c
         ../../m1_csrc/m1_field_detect.c
         ../../m1_csrc/m1_field_detector.c
-        ../../m1_csrc/flipper_nfc.c
-        ../../m1_csrc/flipper_rfid.c
+        ../../m1_csrc/nfc_fmt.c
+        ../../m1_csrc/rfid_file.c
         # --- LF RFID ---
         ../../lfrfid/bit_lib.c
         ../../lfrfid/lfrfid.c
@@ -742,7 +746,8 @@ if(RECOVERY)
         ../../Infrared/irsnd.c
         ../../m1_csrc/m1_infrared.c
         ../../m1_csrc/m1_ir_universal.c
-        ../../m1_csrc/flipper_ir.c
+        ../../m1_csrc/m1_ir_remote.c
+        ../../m1_csrc/ir_file.c
         # --- ESP32 / WiFi / BLE / peer link ---
         ../../Esp32_serial_flasher/app/common/app_common.c
         ../../Esp32_serial_flasher/port/stm32_port.c
@@ -775,7 +780,7 @@ if(RECOVERY)
         ../../m1_csrc/m1_rf_spi.c
         ../../m1_csrc/subghz_autosave.c
         ../../m1_csrc/subghz_freq_presets.c
-        ../../m1_csrc/flipper_subghz.c
+        ../../m1_csrc/subghz_file.c
         # --- Games / apps / BadUSB / BadBT ---
         ../../USB/Class/HID/Src/usbd_hid.c
         ../../m1_csrc/m1_badusb.c
@@ -801,8 +806,7 @@ if(RECOVERY)
         ../../m1_csrc/m1_file_browser.c
         ../../m1_csrc/m1_file_util.c
         ../../m1_csrc/m1_settings.c
-        ../../m1_csrc/m1_flipper_integration.c
-        ../../m1_csrc/flipper_file.c
+        ../../m1_csrc/ff_file.c
         ../../m1_csrc/m1_protocol.c
         ../../m1_csrc/privateprofilestring.c
         ../../m1_csrc/uiView.c

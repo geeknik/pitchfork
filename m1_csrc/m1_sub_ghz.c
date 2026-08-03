@@ -37,7 +37,7 @@
 #include "m1_core_config.h"
 #include "m1_storage.h"
 #include "m1_sdcard_man.h"
-#include "flipper_subghz.h"
+#include "subghz_file.h"
 #include "m1_settings.h"
 #include "m1_virtual_kb.h"
 #include "m1_scene.h"
@@ -1349,11 +1349,11 @@ static bool subghz_save_history_entry(const SubGHz_History_Entry_t *entry)
 	snprintf(sub_path, sizeof(sub_path), "/SUBGHZ/%s%s", new_name, ext);
 
 	bool saved = (fmt == 1)
-	    ? flipper_subghz_save_m1native_key(sub_path,
+	    ? subghz_file_save_m1native_key(sub_path,
 	          entry->frequency, "FuriHalSubGhzPresetOok650Async",
 	          protocol_text[entry->info.protocol],
 	          entry->info.bit_len, entry->info.key, entry->info.te)
-	    : flipper_subghz_save_key(sub_path,
+	    : subghz_file_save_key(sub_path,
 	          entry->frequency, "FuriHalSubGhzPresetOok650Async",
 	          protocol_text[entry->info.protocol],
 	          entry->info.bit_len, entry->info.key, entry->info.te);
@@ -1504,7 +1504,7 @@ static const char *stristr(const char *haystack, const char *needle)
  * converter (sub_ghz_replay_prepare_flipper).  File-scope so it can be
  * returned to scene callers via out_tmp_path.
  */
-#define FLIPPER_SUB_TMP_SGH   "/SUBGHZ/_flipper_tmp.sgh"
+#define FLIPPER_SUB_TMP_SGH   "/SUBGHZ/_ff_tmp.sgh"
 
 /*
  * Per-prepare button-override slot consumed by the Flipper-format converter
@@ -1742,7 +1742,7 @@ static void subghz_replay_blocking_reset_queue(void)
 /*============================================================================*/
 /**
  * @brief  Private mini event loop used by the legacy blocking wrappers
- *         (sub_ghz_replay_flipper_file / sub_ghz_replay_datafile).
+ *         (sub_ghz_replay_ff_file / sub_ghz_replay_datafile).
  *
  * Runs entirely on top of the async primitives — receives main_q_hdl events,
  * drives sub_ghz_replay_continue_async(true) on every Q_EVENT_SUBGHZ_TX, and
@@ -1868,16 +1868,16 @@ static uint8_t subghz_replay_run_blocking(void)
  * format expected by sub_ghz_raw_samples_init().  This function skips the
  * temp-file conversion path entirely and feeds the file straight into the
  * streaming engine, eliminating the "Memory error" failure that occurred when
- * C3.12/SiN360-produced .sgh files were routed through sub_ghz_replay_flipper_file().
+ * C3.12/SiN360-produced .sgh files were routed through sub_ghz_replay_ff_file().
  *
  * Callers obtain `frequency` and `modulation` from the already-loaded
- * flipper_subghz_signal_t (saved scene) or from flipper_subghz_probe()
+ * subghz_file_signal_t (saved scene) or from subghz_file_probe()
  * (playlist scene), so no additional file I/O is required here.
  *
  * @param  sgh_path   Path to the M1 native .sgh NOISE file on the SD card
  * @param  frequency  Carrier frequency in Hz (from the file header)
  * @param  modulation MODULATION_OOK / MODULATION_FSK / MODULATION_ASK
- * @retval 0 = success, non-zero = error code (same as sub_ghz_replay_flipper_file)
+ * @retval 0 = success, non-zero = error code (same as sub_ghz_replay_ff_file)
  */
 uint8_t sub_ghz_replay_datafile(const char *sgh_path,
                                  uint32_t    frequency,
@@ -1915,7 +1915,7 @@ uint8_t sub_ghz_replay_prepare_datafile(const char *sgh_path,
 	subghz_replay_channel = 0;
 	subghz_scan_config.modulation = modulation;
 
-	/* Force CUSTOM band for FSK (same logic as sub_ghz_replay_flipper_file) */
+	/* Force CUSTOM band for FSK (same logic as sub_ghz_replay_ff_file) */
 	if (modulation == MODULATION_FSK && subghz_replay_band != SUB_GHZ_BAND_CUSTOM)
 		subghz_replay_band = SUB_GHZ_BAND_CUSTOM;
 
@@ -1931,7 +1931,7 @@ uint8_t sub_ghz_replay_prepare_datafile(const char *sgh_path,
 /**
  * @brief  Convert a Flipper .sub file to a temp M1 .sgh and set up globals.
  *         Internal helper shared by both the blocking wrapper
- *         (sub_ghz_replay_flipper_file) and the async scene path
+ *         (sub_ghz_replay_ff_file) and the async scene path
  *         (sub_ghz_replay_prepare_flipper).
  *
  *         Handles RAW type .sub files and M1 PACKET .sgh files.  Streams
@@ -1944,7 +1944,7 @@ uint8_t sub_ghz_replay_prepare_datafile(const char *sgh_path,
  * @retval 0 = success, non-zero = error
  */
 /*============================================================================*/
-static uint8_t subghz_replay_flipper_to_tmp(const char *sub_path)
+static uint8_t subghz_replay_ff_to_tmp(const char *sub_path)
 {
 #define FLIPPER_SUB_LINE_MAX  4096
 #define FLIPPER_SUB_OUT_MAX   256
@@ -1984,8 +1984,8 @@ static uint32_t s_raw_sample_batch[FLIPPER_SUB_MAX_SAMPLES];
 	uint32_t key_te = 0;
 	/* Phase 9d-3 — optional `CounterMode:` field on KeeLoq-family
 	 * .sub files.  Defaults to INCREMENT for files that omit the
-	 * field (matches the parse behaviour in flipper_subghz_load). */
-	flipper_subghz_counter_mode_t key_counter_mode =
+	 * field (matches the parse behaviour in subghz_file_load). */
+	subghz_file_counter_mode_t key_counter_mode =
 	    FLIPPER_SUBGHZ_COUNTER_MODE_INCREMENT;
 
 	/* Latch the button-override slot at entry and clear the static slot
@@ -2180,7 +2180,7 @@ static uint32_t s_raw_sample_batch[FLIPPER_SUB_MAX_SAMPLES];
 			 * Flipper file format).  Missing line, empty value, "Increment",
 			 * and any unknown value all yield INCREMENT, so every existing
 			 * .sub file replays unchanged.  Mirrors the parse rules in
-			 * flipper_subghz_load() for cross-tool consistency. */
+			 * subghz_file_load() for cross-tool consistency. */
 			const char *p = line_buf + 12;
 			while (*p == ' ' || *p == '\t') p++;
 			/* Strip trailing whitespace before comparison. */
@@ -2537,7 +2537,7 @@ static uint32_t s_raw_sample_batch[FLIPPER_SUB_MAX_SAMPLES];
 
 #undef FLIPPER_SUB_LINE_MAX
 #undef FLIPPER_SUB_OUT_MAX
-} // subghz_replay_flipper_to_tmp
+} // subghz_replay_ff_to_tmp
 
 /*============================================================================*/
 /**
@@ -2551,7 +2551,7 @@ uint8_t sub_ghz_replay_prepare_flipper(const char *sub_path,
 	if (!sub_path || !out_tmp_path)
 		return 1;
 
-	uint8_t ret = subghz_replay_flipper_to_tmp(sub_path);
+	uint8_t ret = subghz_replay_ff_to_tmp(sub_path);
 	if (ret != 0)
 		return ret;
 	*out_tmp_path = FLIPPER_SUB_TMP_SGH;
@@ -2568,9 +2568,9 @@ uint8_t sub_ghz_replay_prepare_flipper(const char *sub_path,
  * @retval 0 = success, non-zero = converter error.
  */
 /*============================================================================*/
-uint8_t sub_ghz_replay_flipper_file(const char *sub_path)
+uint8_t sub_ghz_replay_ff_file(const char *sub_path)
 {
-	uint8_t ret = subghz_replay_flipper_to_tmp(sub_path);
+	uint8_t ret = subghz_replay_ff_to_tmp(sub_path);
 	if (ret != 0)
 		return ret;
 
@@ -5232,6 +5232,15 @@ static void subghz_init_labels(void)
 	for (uint8_t i = 0; i < SUBGHZ_MOD_PRESET_COUNT; i++)
 		subghz_mod_labels[i] = subghz_mod_presets[i].label;
 	subghz_labels_initialized = true;
+}
+
+/* Non-static wrapper so the scene runner (m1_subghz_scene.c) can guarantee the
+ * freq/mod label arrays are populated on EVERY entry path — the per-feature entry
+ * wrappers (sub_ghz_read_entry etc.) bypass sub_ghz_scene_entry(), which was the
+ * only caller, so Config would draw NULL labels and crash. Idempotent. */
+void subghz_init_labels_ext(void)
+{
+	subghz_init_labels();
 }
 
 /* RSSI read */

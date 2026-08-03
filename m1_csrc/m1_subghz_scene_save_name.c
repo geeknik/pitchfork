@@ -19,7 +19,7 @@
 #include "m1_subghz_scene.h"
 #include "m1_subghz_button_bar.h"
 #include "m1_sub_ghz_decenc.h"
-#include "flipper_subghz.h"
+#include "subghz_file.h"
 
 extern const char *subghz_freq_labels[];
 extern uint8_t subghz_get_save_fmt_ext(void);
@@ -85,12 +85,12 @@ static void scene_on_enter(SubGhzApp *app)
 
     bool saved;
     if (fmt == 1)
-        saved = flipper_subghz_save_m1native_key(app->file_path,
+        saved = subghz_file_save_m1native_key(app->file_path,
                     e->frequency, "FuriHalSubGhzPresetOok650Async",
                     protocol_text[e->info.protocol],
                     e->info.bit_len, e->info.key, e->info.te);
     else
-        saved = flipper_subghz_save_key(app->file_path,
+        saved = subghz_file_save_key(app->file_path,
                     e->frequency, "FuriHalSubGhzPresetOok650Async",
                     protocol_text[e->info.protocol],
                     e->info.bit_len, e->info.key, e->info.te);

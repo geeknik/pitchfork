@@ -26,7 +26,7 @@
  *     - BACK returns to the list view; second BACK pops the scene.
  *
  * The scene loads the file eagerly on entry into a file-scope
- * @ref flipper_subghz_signal_t (16 KB raw-sample buffer) to avoid blowing
+ * @ref subghz_file_signal_t (16 KB raw-sample buffer) to avoid blowing
  * the RTOS task stack — matching the convention already used by Read Raw
  * and the SavedMenu decode path.
  *
@@ -51,7 +51,7 @@
 #include "m1_subghz_button_bar.h"
 #include "m1_sub_ghz.h"
 #include "m1_sub_ghz_decenc.h"
-#include "flipper_subghz.h"
+#include "subghz_file.h"
 #include "subghz_protocol_registry.h"
 #include "subghz_raw_decoder.h"
 
@@ -85,7 +85,7 @@ static char     s_tx_tmp[80];  /**< Temp .sgh path to unlink after TX */
 /* Static to avoid a 16 KB stack allocation (raw_data[8192] lives inside the
  * struct).  This scene only runs from the main RTOS task while the scene is
  * active; non-reentrancy of a file-scope static is safe. */
-static flipper_subghz_signal_t s_sig;
+static subghz_file_signal_t s_sig;
 
 /*============================================================================*/
 /* Helpers                                                                    */
@@ -132,7 +132,7 @@ static void load_and_decode(const SubGhzApp *app)
     snprintf(full_path, sizeof(full_path), "0:%s", app->raw_filepath);
 
     memset(&s_sig, 0, sizeof(s_sig));
-    if (!flipper_subghz_load(full_path, &s_sig))
+    if (!subghz_file_load(full_path, &s_sig))
         return;
 
     if (s_sig.type != FLIPPER_SUBGHZ_TYPE_RAW || s_sig.raw_count == 0)
@@ -262,7 +262,7 @@ static bool scene_on_event(SubGhzApp *app, SubGhzEvent event)
                 const char *preset = (s_sig.preset[0] != '\0')
                                      ? s_sig.preset : "FuriHalSubGhzPresetOok650Async";
 
-                if (!flipper_subghz_save_key(DECODE_TMP_PATH,
+                if (!subghz_file_save_key(DECODE_TMP_PATH,
                         d->frequency, preset,
                         protocol_text[d->protocol],
                         d->bit_len, d->key, te))
@@ -344,12 +344,12 @@ static bool scene_on_event(SubGhzApp *app, SubGhzEvent event)
                 f_mkdir("/SUBGHZ");
                 bool saved;
                 if (fmt == 1)
-                    saved = flipper_subghz_save_m1native_key(save_path,
+                    saved = subghz_file_save_m1native_key(save_path,
                                 d->frequency, preset,
                                 protocol_text[d->protocol],
                                 d->bit_len, d->key, te);
                 else
-                    saved = flipper_subghz_save_key(save_path,
+                    saved = subghz_file_save_key(save_path,
                                 d->frequency, preset,
                                 protocol_text[d->protocol],
                                 d->bit_len, d->key, te);

@@ -8,7 +8,7 @@
  *
  * The Saved → Settings flow needs to display and edit individual fields
  * (serial, button, counter) inside the opaque `uint64_t key` carried by
- * `flipper_subghz_signal_t`.  This module owns the bit/byte layouts for
+ * `subghz_file_signal_t`.  This module owns the bit/byte layouts for
  * each supported protocol family and provides reversible extract /
  * assemble helpers so the scene code never hard-codes shift amounts.
  *
@@ -91,7 +91,7 @@ bool subghz_signal_fields_is_keeloq_family(const char *protocol);
  *
  * @param[in]  protocol  Protocol name — must be a KeeLoq family member.
  * @param[in]  key       64-bit Flipper key as carried by
- *                       `flipper_subghz_signal_t::key`.
+ *                       `subghz_file_signal_t::key`.
  * @param[out] out       Receives the extracted fields.  Must be non-NULL.
  * @retval true   Extraction succeeded.
  * @retval false  @p protocol is NULL/unsupported or @p out is NULL.
@@ -217,7 +217,7 @@ typedef struct {
  * plaintext, and the encrypted payload is returned as-is.
  *
  * @param[in]  key  52-bit Flipper key as carried by
- *                  `flipper_subghz_signal_t::key`.
+ *                  `subghz_file_signal_t::key`.
  * @param[out] out  Receives the extracted fields.  Must be non-NULL.
  * @retval true   Always succeeds when @p out is non-NULL.
  * @retval false  @p out is NULL.

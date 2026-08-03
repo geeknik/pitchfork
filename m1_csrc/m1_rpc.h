@@ -80,6 +80,7 @@
 #define RPC_CMD_FW_DFU_ENTER    0x46
 #define RPC_CMD_FW_BANK_ERASE   0x47
 #define RPC_CMD_FW_FLASH_FROM_SD 0x48   /* headless on-device M1 flash from an SD file */
+#define RPC_CMD_APP_LIST_EXT     0x4F   /* versioned app list: adds [vlen][version] to every entry */
 
 /* ── ESP32 Commands (0x50–0x5F) ── */
 #define RPC_CMD_ESP_INFO        0x50
@@ -96,6 +97,7 @@
 #define RPC_CMD_ESP_UART_SNOOP_RESP 0x63
 #define RPC_CMD_LOG_MESSAGE     0x64    /* M1→host: streamed debug log text */
 #define RPC_CMD_SET_LOG_LEVEL   0x65    /* host->M1: payload[0]=level (0..5) — gate UART verbosity */
+#define RPC_CMD_MENU_LIST       0x66    /* host->M1: dump menu structure (built-ins + apps per category, ordered) for the Studio menu editor */
 
 /* ── GPIO / Expansion Header (0x70–0x7F) ── */
 #define RPC_CMD_GPIO_LIST       0x70    /* host->M1 — enumerate expansion pins */

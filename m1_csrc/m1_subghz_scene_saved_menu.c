@@ -40,7 +40,7 @@
 #include "m1_scene.h"
 #include "m1_submenu.h"
 #include "m1_subghz_scene.h"
-#include "flipper_subghz.h"
+#include "subghz_file.h"
 #include "m1_sub_ghz.h"
 #include "subghz_protocol_registry.h"
 #include "m1_virtual_kb.h"
@@ -81,7 +81,7 @@ static bool is_raw_file;
 static bool has_settings_entry;
 
 /* Cached .sub file metadata (loaded eagerly on scene entry) */
-static flipper_subghz_signal_t saved_signal;
+static subghz_file_signal_t saved_signal;
 
 /*============================================================================*/
 /* Helpers                                                                    */
@@ -128,7 +128,7 @@ static bool load_signal(const SubGhzApp *app)
     snprintf(full_path, sizeof(full_path), "0:%s", app->saved_filepath);
 
     memset(&saved_signal, 0, sizeof(saved_signal));
-    if (!flipper_subghz_load(full_path, &saved_signal))
+    if (!subghz_file_load(full_path, &saved_signal))
         return false;
 
     is_raw_file = (saved_signal.type == FLIPPER_SUBGHZ_TYPE_RAW
@@ -189,7 +189,7 @@ static void scene_on_enter(SubGhzApp *app)
         app->raw_load_is_native = saved_signal.is_m1_native;
         app->raw_load_freq_hz   = saved_signal.frequency;
         {
-            uint8_t mod = flipper_subghz_preset_to_modulation(saved_signal.preset);
+            uint8_t mod = subghz_file_preset_to_modulation(saved_signal.preset);
             app->raw_load_mod = (mod == MODULATION_UNKNOWN) ? MODULATION_OOK : mod;
         }
         subghz_scene_replace(app, SubGhzSceneReadRaw);

@@ -354,6 +354,11 @@ void m1_app_send_q_message(QueueHandle_t Handle, S_M1_Q_Event_Type_t cmd)
 {
 	S_M1_Main_Q_t q_item;
 
+	/* Never send into a NULL handle: a timer/ISR callback can race a queue
+	 * teardown (deleted queue -> handle NULL). xQueueSend(NULL, …) dereferences
+	 * NULL -> HardFault. Drop the message instead. */
+	if (Handle == NULL) return;
+
 	q_item.q_evt_type = cmd;
     xQueueSend(Handle, &q_item, portMAX_DELAY);
 }

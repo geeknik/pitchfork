@@ -21,7 +21,7 @@
  *
  * Field extraction is fully reversible (see subghz_signal_fields.h);
  * the display is non-destructive — no file I/O happens beyond the
- * `flipper_subghz_load()` invocation on scene_on_enter.
+ * `subghz_file_load()` invocation on scene_on_enter.
  */
 
 #include <stdint.h>
@@ -32,7 +32,7 @@
 #include "m1_lcd.h"
 #include "m1_scene.h"
 #include "m1_subghz_scene.h"
-#include "flipper_subghz.h"
+#include "subghz_file.h"
 #include "subghz_signal_fields.h"
 #include "subghz_keeloq.h"
 #include "subghz_keeloq_mfkeys.h"
@@ -47,7 +47,7 @@
 /*============================================================================*/
 
 /** Cached .sub metadata loaded on scene_on_enter from app->saved_filepath. */
-static flipper_subghz_signal_t s_signal;
+static subghz_file_signal_t s_signal;
 /** Extracted plaintext fields (valid only when s_supported == true and
  *  s_is_nice_flor_s == false and s_is_came_atomo == false and
  *  s_is_alutech_at_4n == false). */
@@ -113,7 +113,7 @@ static uint8_t                 s_cursor;
  *   - the learning mode is Normal or Simple.
  *
  * Pure-logic glue — depends only on already-tested modules. */
-static bool resolve_device_key(const flipper_subghz_signal_t *signal,
+static bool resolve_device_key(const subghz_file_signal_t *signal,
                                const subghz_keeloq_fields_t  *fields,
                                uint64_t                       *device_key_out)
 {
@@ -159,7 +159,7 @@ static bool resolve_device_key(const flipper_subghz_signal_t *signal,
  * fields.  See @ref resolve_device_key for the resolution preconditions.
  * On success the caller can reuse @p device_key_out to re-encrypt an
  * updated counter without re-deriving from the mfkey table. */
-static bool resolve_counter(const flipper_subghz_signal_t *signal,
+static bool resolve_counter(const subghz_file_signal_t *signal,
                             const subghz_keeloq_fields_t  *fields,
                             uint16_t                       *counter_out,
                             uint64_t                       *device_key_out)
@@ -211,7 +211,7 @@ static void scene_on_enter(SubGhzApp *app)
     char full_path[80];
     snprintf(full_path, sizeof(full_path), "0:%s", app->saved_filepath);
 
-    if (!flipper_subghz_load(full_path, &s_signal))
+    if (!subghz_file_load(full_path, &s_signal))
     {
         app->need_redraw = true;
         return;
@@ -716,7 +716,7 @@ bool subghz_signal_settings_apply_button(uint8_t new_button)
         updated.button = (uint8_t)(new_button & 0x0FU);
         if (!subghz_signal_fields_nice_flor_s_assemble(&updated, &new_key))
             return false;
-        bool ok = flipper_subghz_save_key_full(s_saved_full_path,
+        bool ok = subghz_file_save_key_full(s_saved_full_path,
                                                s_signal.frequency,
                                                s_signal.preset,
                                                s_signal.protocol,
@@ -737,7 +737,7 @@ bool subghz_signal_settings_apply_button(uint8_t new_button)
         updated.button = (uint8_t)(new_button & 0x0FU);
         if (!subghz_signal_fields_came_atomo_assemble(&updated, &new_key))
             return false;
-        bool ok = flipper_subghz_save_key_full(s_saved_full_path,
+        bool ok = subghz_file_save_key_full(s_saved_full_path,
                                                s_signal.frequency,
                                                s_signal.preset,
                                                s_signal.protocol,
@@ -762,7 +762,7 @@ bool subghz_signal_settings_apply_button(uint8_t new_button)
                                                           alutech_at_4n_table_builtin,
                                                           &new_key))
             return false;
-        bool ok = flipper_subghz_save_key_full(s_saved_full_path,
+        bool ok = subghz_file_save_key_full(s_saved_full_path,
                                                s_signal.frequency,
                                                s_signal.preset,
                                                s_signal.protocol,
@@ -790,7 +790,7 @@ bool subghz_signal_settings_apply_button(uint8_t new_button)
      * empty (no file loaded) the save is rejected.  The Manufacture line
      * is propagated verbatim — if the source file had none, the field is
      * "" and the save helper falls back to plain key-save behaviour. */
-    bool ok = flipper_subghz_save_key_full(s_saved_full_path,
+    bool ok = subghz_file_save_key_full(s_saved_full_path,
                                             s_signal.frequency,
                                             s_signal.preset,
                                             s_signal.protocol,
@@ -853,7 +853,7 @@ bool subghz_signal_settings_apply_counter(uint16_t new_counter)
         updated.enc_payload = new_enc_payload;
         if (!subghz_signal_fields_nice_flor_s_assemble(&updated, &new_key))
             return false;
-        bool ok = flipper_subghz_save_key_full(s_saved_full_path,
+        bool ok = subghz_file_save_key_full(s_saved_full_path,
                                                s_signal.frequency,
                                                s_signal.preset,
                                                s_signal.protocol,
@@ -875,7 +875,7 @@ bool subghz_signal_settings_apply_counter(uint16_t new_counter)
                                                                   new_counter);
         subghz_came_atomo_fields_t updated;
         (void)subghz_signal_fields_came_atomo_extract(new_key, &updated);
-        bool ok = flipper_subghz_save_key_full(s_saved_full_path,
+        bool ok = subghz_file_save_key_full(s_saved_full_path,
                                                s_signal.frequency,
                                                s_signal.preset,
                                                s_signal.protocol,
@@ -900,7 +900,7 @@ bool subghz_signal_settings_apply_counter(uint16_t new_counter)
         subghz_alutech_at_4n_fields_t updated;
         (void)subghz_signal_fields_alutech_at_4n_extract(
             new_key, alutech_at_4n_table_builtin, &updated);
-        bool ok = flipper_subghz_save_key_full(s_saved_full_path,
+        bool ok = subghz_file_save_key_full(s_saved_full_path,
                                                s_signal.frequency,
                                                s_signal.preset,
                                                s_signal.protocol,
@@ -935,7 +935,7 @@ bool subghz_signal_settings_apply_counter(uint16_t new_counter)
                                               &updated, &new_key))
         return false;
 
-    bool ok = flipper_subghz_save_key_full(s_saved_full_path,
+    bool ok = subghz_file_save_key_full(s_saved_full_path,
                                             s_signal.frequency,
                                             s_signal.preset,
                                             s_signal.protocol,
@@ -969,12 +969,12 @@ bool subghz_signal_settings_toggle_counter_mode(void)
     if (s_saved_full_path[0] == '\0')
         return false;
 
-    flipper_subghz_counter_mode_t new_mode =
+    subghz_file_counter_mode_t new_mode =
         (s_signal.counter_mode == FLIPPER_SUBGHZ_COUNTER_MODE_STATIC)
         ? FLIPPER_SUBGHZ_COUNTER_MODE_INCREMENT
         : FLIPPER_SUBGHZ_COUNTER_MODE_STATIC;
 
-    bool ok = flipper_subghz_save_key_full(s_saved_full_path,
+    bool ok = subghz_file_save_key_full(s_saved_full_path,
                                             s_signal.frequency,
                                             s_signal.preset,
                                             s_signal.protocol,

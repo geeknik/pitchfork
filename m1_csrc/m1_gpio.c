@@ -1549,19 +1549,29 @@ void ext_power_3V_set(uint8_t set_mode)
 /******************************************************************************/
 void gpio_gui_update(const S_M1_Menu_t *phmenu, uint8_t sel_item)
 {
-	uint8_t i, n_items;
+	uint8_t i, n_items, top;
 	uint8_t menu_text_y;
 	uint8_t prn_name[GUI_DISP_LINE_LEN_MAX + 1] = {0};
-	uint16_t msg_len, msg_id;
 
 	n_items = phmenu->num_submenu_items;
-	menu_text_y = THIS_LCD_MENU_TEXT_FIRST_ROW_Y;
+
+	/* Only 4 rows clear the info box (item rows at y=11/21/31/41; the info box
+	 * starts at y=42). The first 4 items are the fixed built-in GPIO controls;
+	 * any GPIO-category .m1app apps are appended after them, so scroll a 4-row
+	 * window to keep the selection on-screen instead of drawing over the info
+	 * box. While a built-in (0-3) is selected the block stays anchored at top. */
+	#define GPIO_MENU_VISIBLE_ROWS 4
+	if ( sel_item < GPIO_MENU_VISIBLE_ROWS )
+		top = 0;
+	else
+		top = sel_item - (GPIO_MENU_VISIBLE_ROWS - 1);
 
 	/* Graphic work starts here */
 	m1_u8g2_firstpage(); // This call required for page drawing in mode 1
     do
     {
-    	for (i=0; i<n_items; i++)
+    	menu_text_y = THIS_LCD_MENU_TEXT_FIRST_ROW_Y;
+    	for (i=top; i<n_items && i<top+GPIO_MENU_VISIBLE_ROWS; i++)
     	{
     		if ( i==sel_item )
     		{
@@ -1584,7 +1594,7 @@ void gpio_gui_update(const S_M1_Menu_t *phmenu, uint8_t sel_item)
     			u8g2_DrawStr(&m1_u8g2, 4, menu_text_y, phmenu->submenu[i]->title);
     		}
     		menu_text_y += THIS_LCD_MENU_TEXT_ROW_SPACE;
-    	} // for (i=0; i<n_items; i++)
+    	} // for (i=top; ...)
 
     	// Draw info box at the bottom
     	m1_info_box_display_init(false);
@@ -1610,7 +1620,8 @@ void gpio_gui_update(const S_M1_Menu_t *phmenu, uint8_t sel_item)
     	    	m1_info_box_display_draw(INFO_BOX_ROW_1, "USB<->UART (hdr 12/13)");
     			break;
 
-    		default: // Unknown selection
+    		default: // Appended GPIO app entry
+    	    	m1_info_box_display_draw(INFO_BOX_ROW_1, "Press OK to launch");
     			break;
     	} // switch ( sel_item )
     } while (m1_u8g2_nextpage());

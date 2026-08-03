@@ -39,7 +39,7 @@
  * @param dst   Destination buffer
  * @param dlen  Size of destination buffer (must be > 0)
  */
-void subghz_remap_flipper_path(const char *src, char *dst, size_t dlen);
+void subghz_remap_ff_path(const char *src, char *dst, size_t dlen);
 
 /**
  * Try to parse a "# delay: <ms>" comment line.

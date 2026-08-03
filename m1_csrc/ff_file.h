@@ -1,7 +1,7 @@
 /* See COPYING.txt for license details. */
 
 /*
- * flipper_file.h
+ * ff_file.h
  *
  * Generic Flipper Zero file format parser (key-value line based)
  *
@@ -27,42 +27,42 @@ typedef struct {
 	char   value[FF_VALUE_MAX_LEN];
 	bool   is_open;
 	bool   eof;
-} flipper_file_t;
+} ff_file_t;
 
 /* Open a file for reading */
-bool ff_open(flipper_file_t *ctx, const char *path);
+bool ff_open(ff_file_t *ctx, const char *path);
 
 /* Open a file for writing */
-bool ff_open_write(flipper_file_t *ctx, const char *path);
+bool ff_open_write(ff_file_t *ctx, const char *path);
 
 /* Close file */
-void ff_close(flipper_file_t *ctx);
+void ff_close(ff_file_t *ctx);
 
 /* Read next non-comment, non-empty line. Returns false at EOF */
-bool ff_read_line(flipper_file_t *ctx);
+bool ff_read_line(ff_file_t *ctx);
 
 /* Parse current line as "key: value". Returns false if not key-value format */
-bool ff_parse_kv(flipper_file_t *ctx);
+bool ff_parse_kv(ff_file_t *ctx);
 
 /* After ff_parse_kv(), get the key string */
-const char *ff_get_key(const flipper_file_t *ctx);
+const char *ff_get_key(const ff_file_t *ctx);
 
 /* After ff_parse_kv(), get the value string */
-const char *ff_get_value(const flipper_file_t *ctx);
+const char *ff_get_value(const ff_file_t *ctx);
 
 /* Check if current line is a separator (#) */
-bool ff_is_separator(const flipper_file_t *ctx);
+bool ff_is_separator(const ff_file_t *ctx);
 
 /* Validate header: reads first two lines and checks Filetype and Version */
-bool ff_validate_header(flipper_file_t *ctx, const char *expected_filetype, uint8_t min_version);
+bool ff_validate_header(ff_file_t *ctx, const char *expected_filetype, uint8_t min_version);
 
 /* Write functions */
-bool ff_write_kv_str(flipper_file_t *ctx, const char *key, const char *value);
-bool ff_write_kv_uint32(flipper_file_t *ctx, const char *key, uint32_t val);
-bool ff_write_kv_float(flipper_file_t *ctx, const char *key, float val);
-bool ff_write_kv_hex(flipper_file_t *ctx, const char *key, const uint8_t *data, uint8_t len);
-bool ff_write_separator(flipper_file_t *ctx);
-bool ff_write_comment(flipper_file_t *ctx, const char *comment);
+bool ff_write_kv_str(ff_file_t *ctx, const char *key, const char *value);
+bool ff_write_kv_uint32(ff_file_t *ctx, const char *key, uint32_t val);
+bool ff_write_kv_float(ff_file_t *ctx, const char *key, float val);
+bool ff_write_kv_hex(ff_file_t *ctx, const char *key, const uint8_t *data, uint8_t len);
+bool ff_write_separator(ff_file_t *ctx);
+bool ff_write_comment(ff_file_t *ctx, const char *comment);
 
 /* Utility: parse hex bytes from a value string like "07 00 00 00" */
 uint8_t ff_parse_hex_bytes(const char *str, uint8_t *out, uint8_t max_len);

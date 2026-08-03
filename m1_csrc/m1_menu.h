@@ -75,4 +75,8 @@ extern TaskHandle_t menu_main_handler_task_hdl;
  * Safe to call from any task (just sets a flag). */
 void m1_menu_apps_changed(void);
 
+/* Serialize the current top-level menu structure (categories + ordered items,
+ * built-in vs app) for the Studio menu editor. Returns bytes written to buf. */
+int m1_menu_dump(uint8_t *buf, int max);
+
 #endif /* M1_MENU_H_ */

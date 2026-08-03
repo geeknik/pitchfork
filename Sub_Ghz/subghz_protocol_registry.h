@@ -120,10 +120,10 @@ typedef uint8_t (*SubGhzDecodeFn)(uint16_t protocol_index, uint16_t pulse_count)
 /**
  * Lightweight, registry-friendly view of a loaded `.sub` signal.
  *
- * Populated by the caller from a `flipper_subghz_signal_t` (in the firmware
+ * Populated by the caller from a `subghz_file_signal_t` (in the firmware
  * Saved scene) or from explicit values (in host tests).  The view contains
  * only primitive types so the registry header does not need to know about
- * `flipper_subghz.h` — `Sub_Ghz/` stays independent of `m1_csrc/`.
+ * `subghz_file.h` — `Sub_Ghz/` stays independent of `m1_csrc/`.
  *
  * @field protocol   Protocol name string (may be NULL / empty for RAW).
  * @field key        64-bit Flipper key as carried in the `.sub` file.

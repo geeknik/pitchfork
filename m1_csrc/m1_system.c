@@ -888,6 +888,13 @@ void startup_info_screen_draw(const char *scr_text)
 			u8g2_SetFont(&m1_u8g2, M1_DISP_MAIN_MENU_FONT_B);
 			sw = u8g2_GetStrWidth(&m1_u8g2, scr_text); u8g2_DrawStr(&m1_u8g2, (pw - sw) / 2, 112, scr_text);
 		}
+		else
+		{
+			/* Idle home screen only (no boot status text): hint that BACK opens the
+			 * Power menu directly, so Reboot/Power Off aren't buried in Settings. */
+			u8g2_SetFont(&m1_u8g2, M1_DISP_MAIN_MENU_FONT_N);
+			u8g2_DrawStr(&m1_u8g2, 1, 126, "< Power");
+		}
 	}
 	else
 	{
@@ -910,6 +917,13 @@ void startup_info_screen_draw(const char *scr_text)
 
 		u8g2_SetFont(&m1_u8g2, M1_DISP_MAIN_MENU_FONT_B);
 		u8g2_DrawStr(&m1_u8g2, x0, 62, scr_text);
+
+		if ( !scr_text[0] )
+		{
+			/* Idle home screen only: hint that BACK opens the Power menu directly. */
+			u8g2_SetFont(&m1_u8g2, M1_DISP_MAIN_MENU_FONT_N);
+			u8g2_DrawStr(&m1_u8g2, 1, 62, "< Power");
+		}
 	}
 
 	m1_u8g2_nextpage(); // Update display RAM

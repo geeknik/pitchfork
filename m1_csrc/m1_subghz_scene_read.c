@@ -44,7 +44,7 @@
 #include "m1_file_util.h"
 #include "m1_subghz_scene.h"
 #include "m1_subghz_button_bar.h"
-#include "flipper_subghz.h"
+#include "subghz_file.h"
 #include "subghz_autosave.h"
 
 /*============================================================================*/
@@ -145,12 +145,12 @@ static void autosave_signal(const SubGHz_History_Entry_t *entry)
 
     bool saved;
     if (fmt == 1)
-        saved = flipper_subghz_save_m1native_key(path,
+        saved = subghz_file_save_m1native_key(path,
             entry->frequency, "FuriHalSubGhzPresetOok650Async",
             protocol_text[entry->info.protocol],
             entry->info.bit_len, entry->info.key, entry->info.te);
     else
-        saved = flipper_subghz_save_key(path,
+        saved = subghz_file_save_key(path,
             entry->frequency, "FuriHalSubGhzPresetOok650Async",
             protocol_text[entry->info.protocol],
             entry->info.bit_len, entry->info.key, entry->info.te);

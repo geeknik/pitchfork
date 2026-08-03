@@ -80,7 +80,7 @@ uint32_t subghz_keeloq_create_plaintext(uint32_t serial, uint8_t button,
 /* 64-bit key assembler                                                        */
 /*============================================================================*/
 
-static uint64_t assemble_flipper_key(const char *protocol, uint32_t hop_enc,
+static uint64_t assemble_ff_key(const char *protocol, uint32_t hop_enc,
                                       uint32_t serial, uint8_t button)
 {
     const uint32_t s = serial & KEELOQ_SERIAL_MASK_28;
@@ -149,7 +149,7 @@ KeeLoqCreateResult subghz_keeloq_create_key(const KeeLoqCreateParams *params,
                                                      params->counter);
     uint32_t hop_enc = keeloq_encrypt(plain, device_key);
 
-    *key_out = assemble_flipper_key(params->protocol, hop_enc,
+    *key_out = assemble_ff_key(params->protocol, hop_enc,
                                      params->serial, params->button);
     return KEELOQ_CREATE_OK;
 }

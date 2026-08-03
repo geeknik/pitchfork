@@ -13,7 +13,7 @@
  *   uint64_t seed = ((uint64_t)HAL_GetTick() << 32) ^ HAL_GetTick();
  *   NewRemoteParams p;
  *   subghz_new_remote_gen(BW_PROTO_CAME_ATOMO, seed, &p);
- *   // p.proto_name, p.freq_hz, p.key, p.bit_count, p.te → fill flipper_subghz_signal_t
+ *   // p.proto_name, p.freq_hz, p.key, p.bit_count, p.te → fill subghz_file_signal_t
  *
  * M1 Project — Hapax fork
  */
@@ -43,7 +43,7 @@ typedef enum {
 
 /**
  * Generated remote parameters — filled by subghz_new_remote_gen().
- * All fields are ready to copy directly into a flipper_subghz_signal_t.
+ * All fields are ready to copy directly into a subghz_file_signal_t.
  */
 typedef struct {
     char     proto_name[32]; /**< Protocol name string for .sub Protocol: field */

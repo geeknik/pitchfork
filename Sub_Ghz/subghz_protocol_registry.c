@@ -1128,7 +1128,7 @@ const SubGhzProtocolDef subghz_protocol_registry[] = {
          * 40-bit packet: [0xD5AA header][16-bit data][0xAD footer]
          * Physical layer matches standard X10 RF (same OOK PWM timing).
          * Frequency: 310 MHz (North America) / 433.92 MHz (Europe)
-         * Ref: https://github.com/evilpete/flipper_toolbox/raw/refs/heads/main/subghz/firecracker_spec.txt
+         * Ref: https://github.com/evilpete/ff_toolbox/raw/refs/heads/main/subghz/firecracker_spec.txt
          *
          * Note: SubGhzProtocolFlag_Send is intentionally omitted. The generic
          * static TX path (subghz_encode_ook_pwm) uses standard OOK PWM where

@@ -683,7 +683,7 @@ static bool scene_on_event(SubGhzApp *app, SubGhzEvent event)
                         app->raw_state          = SubGhzReadRawStateLoaded;
                         /* Freshly recorded files are Flipper .sub format, so
                          * raw_load_is_native stays false.  The Send handler uses
-                         * sub_ghz_replay_flipper_file(), which does not need
+                         * sub_ghz_replay_ff_file(), which does not need
                          * raw_load_freq_hz / raw_load_mod — those are only read
                          * when raw_load_is_native is true (M1 native .sgh path). */
                         app->raw_load_is_native = false;

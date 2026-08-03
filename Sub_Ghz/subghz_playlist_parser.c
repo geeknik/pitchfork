@@ -16,7 +16,7 @@
 #include <stdlib.h>
 #include "subghz_playlist_parser.h"
 
-void subghz_remap_flipper_path(const char *src, char *dst, size_t dlen)
+void subghz_remap_ff_path(const char *src, char *dst, size_t dlen)
 {
     if (!src || !dst || dlen == 0)
         return;

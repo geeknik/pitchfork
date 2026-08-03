@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include "FreeRTOS.h"
 #include "task.h"
+#include "semphr.h"
 #include "stm32h5xx_hal.h"
 #include "main.h"
 #include "m1_app_manager.h"
@@ -62,6 +63,11 @@
 /* Default stack size if manifest doesn't specify (in 32-bit words) */
 #define APP_DEFAULT_STACK     2048
 
+/* The app index is shared by the menu task and rpc_task. Keep its lock bounded:
+ * a transient contention becomes a retryable RPC BUSY response, never an
+ * indefinitely blocked menu or USB worker. */
+#define APP_INDEX_LOCK_WAIT_TICKS  pdMS_TO_TICKS(1000)
+
 //************************** S T R U C T U R E S *******************************
 
 typedef struct {
@@ -69,6 +75,7 @@ typedef struct {
     char display_name[APPS_NAME_MAX_LEN];
     char full_path[APPS_PATH_MAX_LEN];
     char category[16];      /* manifest tag: default menu folder ("" = Apps) */
+    char version[16];       /* manifest release version ("" = legacy app) */
 } app_list_entry_t;
 
 typedef struct {
@@ -81,18 +88,29 @@ typedef struct {
 /***************************** V A R I A B L E S ******************************/
 
 static app_list_entry_t s_app_list[APPS_MAX_FILES];
+/* Work in a separate buffer so a failed scan never destroys the last known-good
+ * menu/catalog snapshot. */
+static app_list_entry_t s_app_scan_work[APPS_MAX_FILES];
 static uint16_t s_app_count = 0;
 /* The RPC catalog must distinguish an empty /apps directory from a failed SD
  * scan.  Returning zero for both made qMonstatek wait or display a bad layout
  * while the actual storage error was hidden. */
 static FRESULT s_app_scan_result = FR_OK;
+static StaticSemaphore_t s_app_index_lock_storage;
+static SemaphoreHandle_t s_app_index_lock = NULL;
+static volatile bool s_app_index_dirty = true;
+static volatile uint32_t s_app_index_generation = 1;
 static app_run_ctx_t s_run_ctx;
 
 /********************* F U N C T I O N   P R O T O T Y P E S ******************/
 
-static uint16_t apps_scan_directory(void);
+static uint16_t apps_scan_directory(app_list_entry_t *out, FRESULT *result_out);
+static bool apps_index_init(void);
+static bool apps_index_take(TickType_t wait_ticks);
+static void apps_index_give(void);
 static bool apps_read_manifest_name(const char *path, char *name_out, uint16_t name_len,
-                                    char *cat_out, uint16_t cat_len);
+                                    char *cat_out, uint16_t cat_len,
+                                    char *version_out, uint16_t version_len);
 static void apps_draw_list(const char *title, uint16_t count, uint16_t selection);
 static void apps_draw_message(const char *line1, const char *line2);
 static elf_load_status_t apps_run(const char *path);
@@ -109,18 +127,58 @@ static void app_task_wrapper(void *param);
 void m1_app_manager_init(void)
 {
     m1_app_api_init();
+    (void)apps_index_init();
     memset(&s_run_ctx, 0, sizeof(s_run_ctx));
     M1_LOG_I(TAG, "App manager initialized");
 }
 
 /*============================================================================*/
-/* Public app enumeration for RPC (qM App Catalog). Single-threaded RPC dispatch
- * assumption; a concurrent on-device Apps browser is a rare edge (worst case a
- * momentarily inconsistent list, never a crash). */
+/* Public app enumeration for RPC and the modular menu. A fresh scan is only
+ * performed after an app-directory mutation; otherwise this returns the cached
+ * snapshot without touching the SD card. */
 /*============================================================================*/
 uint16_t m1_app_manager_scan(void)
 {
-    return apps_scan_directory();   /* also sets s_app_count */
+    uint16_t count;
+
+    if (!apps_index_take(APP_INDEX_LOCK_WAIT_TICKS))
+    {
+        s_app_scan_result = FR_TIMEOUT;
+        return 0;
+    }
+
+    if (s_app_index_dirty)
+    {
+        FRESULT result = FR_OK;
+        uint32_t scan_generation;
+
+        taskENTER_CRITICAL();
+        scan_generation = s_app_index_generation;
+        taskEXIT_CRITICAL();
+        count = apps_scan_directory(s_app_scan_work, &result);
+        s_app_scan_result = result;
+        if (result == FR_OK)
+        {
+            memcpy(s_app_list, s_app_scan_work, sizeof(s_app_list));
+            s_app_count = count;
+            /* Do not clear a mutation notification that arrived while the SD
+             * scan was in flight; that newer change needs its own refresh. */
+            taskENTER_CRITICAL();
+            s_app_index_dirty = (s_app_index_generation != scan_generation);
+            taskEXIT_CRITICAL();
+        }
+        /* Preserve the previous usable snapshot on any transient SD error. */
+    }
+    else
+    {
+        /* A cached read is successful even if a previous caller only failed to
+         * acquire the index mutex; do not leak that old BUSY status forward. */
+        s_app_scan_result = FR_OK;
+    }
+
+    count = s_app_count;
+    apps_index_give();
+    return count;
 }
 
 FRESULT m1_app_manager_last_scan_result(void)
@@ -128,15 +186,74 @@ FRESULT m1_app_manager_last_scan_result(void)
     return s_app_scan_result;
 }
 
-bool m1_app_manager_get(uint16_t idx, const char **filename, const char **name,
-                        const char **category)
+bool m1_app_manager_get(uint16_t idx,
+                        char *filename, uint16_t filename_len,
+                        char *name, uint16_t name_len,
+                        char *category, uint16_t category_len,
+                        char *version, uint16_t version_len)
 {
-    if (idx >= s_app_count)
+    bool ok = false;
+
+    if (!apps_index_take(APP_INDEX_LOCK_WAIT_TICKS))
         return false;
-    if (filename) *filename = s_app_list[idx].filename;
-    if (name)     *name     = s_app_list[idx].display_name;
-    if (category) *category = s_app_list[idx].category;
-    return true;
+
+    if (idx < s_app_count)
+    {
+        if (filename && filename_len) {
+            strncpy(filename, s_app_list[idx].filename, filename_len - 1);
+            filename[filename_len - 1] = '\0';
+        }
+        if (name && name_len) {
+            strncpy(name, s_app_list[idx].display_name, name_len - 1);
+            name[name_len - 1] = '\0';
+        }
+        if (category && category_len) {
+            strncpy(category, s_app_list[idx].category, category_len - 1);
+            category[category_len - 1] = '\0';
+        }
+        if (version && version_len) {
+            strncpy(version, s_app_list[idx].version, version_len - 1);
+            version[version_len - 1] = '\0';
+        }
+        ok = true;
+    }
+
+    apps_index_give();
+    return ok;
+}
+
+void m1_app_manager_mark_dirty(void)
+{
+    /* Do not take the index lock here: this is called from file-completion
+     * paths and must never turn a completed upload into a wait on a scan. */
+    taskENTER_CRITICAL();
+    s_app_index_generation++;
+    s_app_index_dirty = true;
+    taskEXIT_CRITICAL();
+}
+
+static bool apps_index_init(void)
+{
+    if (s_app_index_lock != NULL)
+        return true;
+
+    taskENTER_CRITICAL();
+    if (s_app_index_lock == NULL)
+        s_app_index_lock = xSemaphoreCreateMutexStatic(&s_app_index_lock_storage);
+    taskEXIT_CRITICAL();
+    return s_app_index_lock != NULL;
+}
+
+static bool apps_index_take(TickType_t wait_ticks)
+{
+    if (!apps_index_init())
+        return false;
+    return xSemaphoreTake(s_app_index_lock, wait_ticks) == pdTRUE;
+}
+
+static void apps_index_give(void)
+{
+    xSemaphoreGive(s_app_index_lock);
 }
 
 
@@ -146,28 +263,27 @@ bool m1_app_manager_get(uint16_t idx, const char **filename, const char **name,
  * @retval uint16_t  Number of apps found
  */
 /*============================================================================*/
-static uint16_t apps_scan_directory(void)
+static uint16_t apps_scan_directory(app_list_entry_t *out, FRESULT *result_out)
 {
     DIR dir;
     FILINFO fno;
     FRESULT res;
     uint16_t count = 0;
 
-    s_app_count = 0;
-    s_app_scan_result = FR_OK;
+    *result_out = FR_OK;
 
     /* Ensure the apps directory exists */
     res = f_mkdir(APPS_DIR);
     if (res != FR_OK && res != FR_EXIST)
     {
-        s_app_scan_result = res;
+        *result_out = res;
         return 0;
     }
 
     res = f_opendir(&dir, APPS_DIR);
     if (res != FR_OK)
     {
-        s_app_scan_result = res;
+        *result_out = res;
         M1_LOG_W(TAG, "Cannot open %s (err=%u)", APPS_DIR, res);
         return 0;
     }
@@ -177,7 +293,7 @@ static uint16_t apps_scan_directory(void)
         res = f_readdir(&dir, &fno);
         if (res != FR_OK)
         {
-            s_app_scan_result = res;
+            *result_out = res;
             break;
         }
         if (fno.fname[0] == '\0')
@@ -198,32 +314,35 @@ static uint16_t apps_scan_directory(void)
             continue;
 
         /* Store the entry */
-        strncpy(s_app_list[count].filename, fno.fname, APPS_NAME_MAX_LEN - 1);
-        s_app_list[count].filename[APPS_NAME_MAX_LEN - 1] = '\0';
+        strncpy(out[count].filename, fno.fname, APPS_NAME_MAX_LEN - 1);
+        out[count].filename[APPS_NAME_MAX_LEN - 1] = '\0';
 
-        snprintf(s_app_list[count].full_path, APPS_PATH_MAX_LEN,
+        snprintf(out[count].full_path, APPS_PATH_MAX_LEN,
                  "%s/%s", APPS_DIR, fno.fname);
 
-        /* Try to read the display name + category tag from the manifest */
-        s_app_list[count].category[0] = '\0';
-        if (!apps_read_manifest_name(s_app_list[count].full_path,
-                                      s_app_list[count].display_name,
+        /* Try to read the display name, category tag, and release version from
+         * the manifest. Older manifests zero-fill the newer fields. */
+        out[count].category[0] = '\0';
+        out[count].version[0] = '\0';
+        if (!apps_read_manifest_name(out[count].full_path,
+                                      out[count].display_name,
                                       APPS_NAME_MAX_LEN,
-                                      s_app_list[count].category,
-                                      sizeof(s_app_list[count].category)))
+                                      out[count].category,
+                                      sizeof(out[count].category),
+                                      out[count].version,
+                                      sizeof(out[count].version)))
         {
             /* Fall back to filename without extension */
-            strncpy(s_app_list[count].display_name, fno.fname, name_len - ext_len);
-            s_app_list[count].display_name[name_len - ext_len] = '\0';
+            strncpy(out[count].display_name, fno.fname, name_len - ext_len);
+            out[count].display_name[name_len - ext_len] = '\0';
         }
 
         count++;
     }
 
     res = f_closedir(&dir);
-    if (res != FR_OK && s_app_scan_result == FR_OK)
-        s_app_scan_result = res;
-    s_app_count = count;
+    if (res != FR_OK && *result_out == FR_OK)
+        *result_out = res;
 
     M1_LOG_I(TAG, "Found %u apps in %s", count, APPS_DIR);
     return count;
@@ -235,7 +354,7 @@ static uint16_t apps_scan_directory(void)
 /* Scan 0:/apps and return the count; use m1_apps_get() to read each entry. */
 int m1_apps_scan(void)
 {
-    return (int)apps_scan_directory();
+    return (int)m1_app_manager_scan();
 }
 
 /* Copy one scanned app's path/name/category out. Returns false if idx is out of
@@ -243,11 +362,11 @@ int m1_apps_scan(void)
 bool m1_apps_get(int idx, char *path, uint16_t path_len,
                  char *name, uint16_t name_len, char *cat, uint16_t cat_len)
 {
-    if (idx < 0 || idx >= (int)s_app_count) return false;
-    if (path && path_len) { strncpy(path, s_app_list[idx].full_path,   path_len - 1); path[path_len - 1] = '\0'; }
-    if (name && name_len) { strncpy(name, s_app_list[idx].display_name, name_len - 1); name[name_len - 1] = '\0'; }
-    if (cat  && cat_len)  { strncpy(cat,  s_app_list[idx].category,     cat_len  - 1); cat[cat_len  - 1] = '\0'; }
-    return true;
+    return idx >= 0 && m1_app_manager_get((uint16_t)idx,
+                                           path, path_len,
+                                           name, name_len,
+                                           cat, cat_len,
+                                           NULL, 0);
 }
 
 /* Load + run a specific .m1app by path (used by menu app-launch entries).
@@ -268,9 +387,11 @@ int m1_apps_run(const char *path)
  */
 /*============================================================================*/
 static bool apps_read_manifest_name(const char *path, char *name_out, uint16_t name_len,
-                                    char *cat_out, uint16_t cat_len)
+                                    char *cat_out, uint16_t cat_len,
+                                    char *version_out, uint16_t version_len)
 {
     if (cat_out && cat_len) cat_out[0] = '\0';
+    if (version_out && version_len) version_out[0] = '\0';
     FIL fp;
     FRESULT res;
     UINT br;
@@ -363,7 +484,8 @@ static bool apps_read_manifest_name(const char *path, char *name_out, uint16_t n
                 shdr.sh_size >= M1_APP_MANIFEST_CORE_SIZE)
             {
                 /* Lenient read: old apps have only the 40-byte core (no category);
-                 * newer apps append category[16]. Zero-fill then copy what's there. */
+                 * newer apps append category[16] and then version[16]. Zero-fill
+                 * first so every older app remains compatible. */
                 m1_app_manifest_t manifest;
                 memset(&manifest, 0, sizeof(manifest));
                 uint32_t want = shdr.sh_size < sizeof(manifest)
@@ -387,6 +509,11 @@ static bool apps_read_manifest_name(const char *path, char *name_out, uint16_t n
                         manifest.category[sizeof(manifest.category) - 1] = '\0';
                         strncpy(cat_out, manifest.category, cat_len - 1);
                         cat_out[cat_len - 1] = '\0';
+                    }
+                    if (version_out && version_len) {
+                        manifest.version[sizeof(manifest.version) - 1] = '\0';
+                        strncpy(version_out, manifest.version, version_len - 1);
+                        version_out[version_len - 1] = '\0';
                     }
                     f_close(&fp);
                     return true;
@@ -439,19 +566,22 @@ static void apps_draw_list(const char *title, uint16_t count, uint16_t selection
     for (i = 0; i < visible; i++)
     {
         uint16_t idx = start_idx + i;
+        char app_name[APPS_NAME_MAX_LEN] = "";
         y = LIST_START_Y + (i * LIST_ITEM_HEIGHT);
+        if (!m1_apps_get(idx, NULL, 0, app_name, sizeof(app_name), NULL, 0))
+            strncpy(app_name, "<app changed>", sizeof(app_name) - 1);
 
         if (idx == selection)
         {
             u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
             u8g2_DrawBox(&m1_u8g2, 0, y, 128, LIST_ITEM_HEIGHT);
             u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_BG);
-            u8g2_DrawStr(&m1_u8g2, 4, y + 8, s_app_list[idx].display_name);
+            u8g2_DrawStr(&m1_u8g2, 4, y + 8, app_name);
             u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
         }
         else
         {
-            u8g2_DrawStr(&m1_u8g2, 4, y + 8, s_app_list[idx].display_name);
+            u8g2_DrawStr(&m1_u8g2, 4, y + 8, app_name);
         }
     }
 
@@ -561,6 +691,18 @@ static elf_load_status_t apps_run(const char *path)
     const m1_api_interface_t *api;
     BaseType_t xret;
     uint32_t stack_words;
+    char abspath[APPS_PATH_MAX_LEN];
+
+    /* The menu stores each app by BASENAME (from the app index). f_open() then
+     * resolves it against the FatFs current directory — which any preceding
+     * f_opendir (e.g. a qMonstatek File Manager listing of "0:/") can move off
+     * 0:/apps, making the open fail FR_NO_FILE. Always launch by absolute path
+     * so loading is independent of the current directory. */
+    if (path && !strchr(path, '/'))
+    {
+        snprintf(abspath, sizeof(abspath), "%s/%s", APPS_DIR, path);
+        path = abspath;
+    }
 
     /* Show loading screen */
     apps_draw_message("Loading...", NULL);
@@ -656,9 +798,10 @@ void game_apps_browser_run(void)
     /* Initialize API if not done yet */
     m1_app_api_init();
 
-    /* Scan for apps */
+    /* Refresh/read the shared snapshot. It serializes any simultaneous qM
+     * catalog request and preserves a usable prior list on SD failure. */
     apps_draw_message("Scanning...", NULL);
-    count = apps_scan_directory();
+    count = m1_app_manager_scan();
 
     if (count == 0)
     {
@@ -720,7 +863,13 @@ void game_apps_browser_run(void)
         else if (this_button_status.event[BUTTON_OK_KP_ID] == BUTTON_EVENT_CLICK)
         {
             /* Run the selected app */
-            elf_load_status_t result = apps_run(s_app_list[selection].full_path);
+            char app_path[APPS_PATH_MAX_LEN] = "";
+            if (!m1_apps_get(selection, app_path, sizeof(app_path), NULL, 0, NULL, 0))
+            {
+                apps_draw_message("Apps changed", "Reopen list");
+                continue;
+            }
+            elf_load_status_t result = apps_run(app_path);
 
             if (result != ELF_OK)
             {

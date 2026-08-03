@@ -1,7 +1,7 @@
 /* See COPYING.txt for license details. */
 
 /*
- * flipper_subghz.c
+ * subghz_file.c
  *
  * Flipper Zero .sub file format parser for Sub-GHz signals
  *
@@ -16,12 +16,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
-#include "flipper_subghz.h"
+#include "subghz_file.h"
 #include "m1_sub_ghz.h"
 
 /*************************** D E F I N E S ************************************/
 
-/* FLIPPER_SUBGHZ_RAW_FILETYPE is defined in flipper_subghz.h */
+/* FLIPPER_SUBGHZ_RAW_FILETYPE is defined in subghz_file.h */
 #define FLIPPER_SUBGHZ_KEY_FILETYPE      "Flipper SubGhz Key File"
 #define FLIPPER_SUBGHZ_MIN_VERSION       1
 
@@ -40,10 +40,10 @@
 /********************* F U N C T I O N   P R O T O T Y P E S ******************/
 
 static int subghz_strcasecmp(const char *a, const char *b);
-static bool subghz_parse_raw(flipper_file_t *ctx, flipper_subghz_signal_t *out);
-static bool subghz_parse_key(flipper_file_t *ctx, flipper_subghz_signal_t *out);
-static bool m1sgh_parse_raw(flipper_file_t *ctx, flipper_subghz_signal_t *out);
-static bool m1sgh_parse_packet(flipper_file_t *ctx, flipper_subghz_signal_t *out);
+static bool subghz_parse_raw(ff_file_t *ctx, subghz_file_signal_t *out);
+static bool subghz_parse_key(ff_file_t *ctx, subghz_file_signal_t *out);
+static bool m1sgh_parse_raw(ff_file_t *ctx, subghz_file_signal_t *out);
+static bool m1sgh_parse_packet(ff_file_t *ctx, subghz_file_signal_t *out);
 static const char *stristr(const char *haystack, const char *needle);
 
 /*************** F U N C T I O N   I M P L E M E N T A T I O N ****************/
@@ -70,7 +70,7 @@ static int subghz_strcasecmp(const char *a, const char *b)
 /**
  * @brief  Parse a raw Sub-GHz file body after header validation
  */
-static bool subghz_parse_raw(flipper_file_t *ctx, flipper_subghz_signal_t *out)
+static bool subghz_parse_raw(ff_file_t *ctx, subghz_file_signal_t *out)
 {
 	int32_t line_samples[SUBGHZ_LINE_SAMPLES_MAX];
 	uint16_t line_count;
@@ -129,7 +129,7 @@ static bool subghz_parse_raw(flipper_file_t *ctx, flipper_subghz_signal_t *out)
 /**
  * @brief  Parse a key/parsed Sub-GHz file body after header validation
  */
-static bool subghz_parse_key(flipper_file_t *ctx, flipper_subghz_signal_t *out)
+static bool subghz_parse_key(ff_file_t *ctx, subghz_file_signal_t *out)
 {
 	out->type = FLIPPER_SUBGHZ_TYPE_PARSED;
 
@@ -217,7 +217,7 @@ static bool subghz_parse_key(flipper_file_t *ctx, flipper_subghz_signal_t *out)
  * offline decode engine (which expects Flipper-style alternating int16_t)
  * can process them.  The first sample is assumed to be a mark (positive).
  */
-static bool m1sgh_parse_raw(flipper_file_t *ctx, flipper_subghz_signal_t *out)
+static bool m1sgh_parse_raw(ff_file_t *ctx, subghz_file_signal_t *out)
 {
 	int32_t line_samples[SUBGHZ_LINE_SAMPLES_MAX];
 	uint16_t line_count;
@@ -276,7 +276,7 @@ static bool m1sgh_parse_raw(flipper_file_t *ctx, flipper_subghz_signal_t *out)
  * "Bit:"), and a "Payload:" field (0x-prefixed hex key) and "BT:" (bit time).
  * All fields are extracted so callers can use key and te from the result.
  */
-static bool m1sgh_parse_packet(flipper_file_t *ctx, flipper_subghz_signal_t *out)
+static bool m1sgh_parse_packet(ff_file_t *ctx, subghz_file_signal_t *out)
 {
 	out->type = FLIPPER_SUBGHZ_TYPE_PARSED;
 
@@ -330,9 +330,9 @@ static bool m1sgh_parse_packet(flipper_file_t *ctx, flipper_subghz_signal_t *out
  * @param  out   output signal structure
  * @return true on success
  */
-bool flipper_subghz_load(const char *path, flipper_subghz_signal_t *out)
+bool subghz_file_load(const char *path, subghz_file_signal_t *out)
 {
-	flipper_file_t ff;
+	ff_file_t ff;
 	bool result = false;
 	char filetype_val[48]; /* saved before version read overwrites ff.value */
 	char version_val[16];  /* saved before next read may overwrite it */
@@ -340,7 +340,7 @@ bool flipper_subghz_load(const char *path, flipper_subghz_signal_t *out)
 	if (path == NULL || out == NULL)
 		return false;
 
-	memset(out, 0, sizeof(flipper_subghz_signal_t));
+	memset(out, 0, sizeof(subghz_file_signal_t));
 
 	if (!ff_open(&ff, path))
 		return false;
@@ -390,7 +390,7 @@ bool flipper_subghz_load(const char *path, flipper_subghz_signal_t *out)
 		else
 			result = subghz_parse_key(&ff, out);
 	}
-	else if (flipper_subghz_is_m1_native_header(filetype_val, version_val))
+	else if (subghz_file_is_m1_native_header(filetype_val, version_val))
 	{
 		/* M1 native .sgh format — sub-type (NOISE/PACKET) is in filetype_val */
 		if (strstr(filetype_val, M1_SUBGHZ_NOISE_TYPE) != NULL)
@@ -421,7 +421,7 @@ bool flipper_subghz_load(const char *path, flipper_subghz_signal_t *out)
  * @param  version_val   Value string from the Version: line
  * @return true if the header indicates M1 native .sgh format
  */
-bool flipper_subghz_is_m1_native_header(const char *filetype_val,
+bool subghz_file_is_m1_native_header(const char *filetype_val,
                                          const char *version_val)
 {
 	if (filetype_val == NULL || version_val == NULL)
@@ -444,15 +444,15 @@ bool flipper_subghz_is_m1_native_header(const char *filetype_val,
  * the file immediately after; no Data: lines are loaded.
  *
  * This is used by the playlist scene so that each entry can be classified
- * without the 16 KB overhead of a full flipper_subghz_signal_t.
+ * without the 16 KB overhead of a full subghz_file_signal_t.
  *
  * @param  path  file path on FatFs filesystem
  * @param  out   probe result (set to zero on failure)
  * @return true if the file was opened and a valid frequency was found
  */
-bool flipper_subghz_probe(const char *path, flipper_subghz_probe_t *out)
+bool subghz_file_probe(const char *path, subghz_file_probe_t *out)
 {
-	flipper_file_t ff;
+	ff_file_t ff;
 	char filetype_val[48];
 	char version_val[16];
 	bool done_freq = false;
@@ -487,7 +487,7 @@ bool flipper_subghz_probe(const char *path, flipper_subghz_probe_t *out)
 	strncpy(version_val, ff_get_value(&ff), sizeof(version_val) - 1);
 	version_val[sizeof(version_val) - 1] = '\0';
 
-	out->is_m1_native = flipper_subghz_is_m1_native_header(filetype_val, version_val);
+	out->is_m1_native = subghz_file_is_m1_native_header(filetype_val, version_val);
 	/* NOISE: M1 "NOISE" or Flipper "RAW" */
 	out->is_noise = (strstr(filetype_val, M1_SUBGHZ_NOISE_TYPE) != NULL ||
 	                 strstr(filetype_val, "RAW") != NULL);
@@ -513,7 +513,7 @@ bool flipper_subghz_probe(const char *path, flipper_subghz_probe_t *out)
 		else if (!done_mod && (subghz_strcasecmp(key, "Preset") == 0 ||
 		                       subghz_strcasecmp(key, "Modulation") == 0))
 		{
-			out->modulation = flipper_subghz_preset_to_modulation(val);
+			out->modulation = subghz_file_preset_to_modulation(val);
 			if (out->modulation == MODULATION_UNKNOWN)
 				out->modulation = MODULATION_OOK;
 			done_mod = true;
@@ -531,9 +531,9 @@ bool flipper_subghz_probe(const char *path, flipper_subghz_probe_t *out)
 }
 
 
-bool flipper_subghz_save(const char *path, const flipper_subghz_signal_t *sig)
+bool subghz_file_save(const char *path, const subghz_file_signal_t *sig)
 {
-	flipper_file_t ff;
+	ff_file_t ff;
 	bool result = true;
 
 	if (path == NULL || sig == NULL)
@@ -628,8 +628,8 @@ bool flipper_subghz_save(const char *path, const flipper_subghz_signal_t *sig)
 /**
  * @brief  Save an M1 native .sgh PACKET file for a parsed (key) signal.
  *
- * Writes a file that can be fully loaded by flipper_subghz_load() (which now
- * maps Payload→key and BT→te) and replayed via sub_ghz_replay_flipper_file().
+ * Writes a file that can be fully loaded by subghz_file_load() (which now
+ * maps Payload→key and BT→te) and replayed via sub_ghz_replay_ff_file().
  * The format uses M1-specific field names (Bits/Payload/BT) so that legacy
  * M1 tools can also read it.
  *
@@ -638,9 +638,9 @@ bool flipper_subghz_save(const char *path, const flipper_subghz_signal_t *sig)
  *               with bit_count > 0)
  * @return true on success
  */
-bool flipper_subghz_save_m1native(const char *path, const flipper_subghz_signal_t *sig)
+bool subghz_file_save_m1native(const char *path, const subghz_file_signal_t *sig)
 {
-	flipper_file_t ff;
+	ff_file_t ff;
 	bool result = true;
 	char buf[32];
 
@@ -701,8 +701,8 @@ bool flipper_subghz_save_m1native(const char *path, const flipper_subghz_signal_
 /**
  * @brief  Lightweight .sub KEY save — writes from individual fields.
  *
- * Equivalent to flipper_subghz_save() for a PARSED signal but avoids the
- * need for a flipper_subghz_signal_t at the call site (and its ~16 KB
+ * Equivalent to subghz_file_save() for a PARSED signal but avoids the
+ * need for a subghz_file_signal_t at the call site (and its ~16 KB
  * raw_data[] array).  All four save-path callers deal only with decoded
  * key signals and never need the raw buffer, so this is the preferred helper.
  *
@@ -715,11 +715,11 @@ bool flipper_subghz_save_m1native(const char *path, const flipper_subghz_signal_
  * @param  te        Timing element (0 to omit)
  * @return true on success
  */
-bool flipper_subghz_save_key(const char *path, uint32_t frequency,
+bool subghz_file_save_key(const char *path, uint32_t frequency,
                               const char *preset, const char *protocol,
                               uint32_t bit_count, uint64_t key, uint32_t te)
 {
-	flipper_file_t ff;
+	ff_file_t ff;
 	bool result = true;
 	char key_str[32];
 
@@ -770,15 +770,15 @@ bool flipper_subghz_save_key(const char *path, uint32_t frequency,
 
 /*============================================================================*/
 /**
- * @brief  Variant of flipper_subghz_save_key() that also writes the
+ * @brief  Variant of subghz_file_save_key() that also writes the
  *         `Manufacture:` field so the saved key can be replayed via the
  *         KeeLoq counter-mode encoder.
  *
  * Used by the Phase 8c-3 Create-from-scratch KeeLoq-family flow.  When
  * @p manufacture is NULL or empty the function behaves identically to
- * flipper_subghz_save_key() (no Manufacture line written).
+ * subghz_file_save_key() (no Manufacture line written).
  */
-bool flipper_subghz_save_key_with_manufacture(const char *path,
+bool subghz_file_save_key_with_manufacture(const char *path,
                                                uint32_t    frequency,
                                                const char *preset,
                                                const char *protocol,
@@ -791,7 +791,7 @@ bool flipper_subghz_save_key_with_manufacture(const char *path,
 	 * callers — defaults CounterMode to INCREMENT so no new line is
 	 * written to existing files unless they go through the Phase 9d-3
 	 * SignalSettings save path. */
-	return flipper_subghz_save_key_full(path, frequency, preset, protocol,
+	return subghz_file_save_key_full(path, frequency, preset, protocol,
 	                                    bit_count, key, te, manufacture,
 	                                    FLIPPER_SUBGHZ_COUNTER_MODE_INCREMENT);
 }
@@ -805,7 +805,7 @@ bool flipper_subghz_save_key_with_manufacture(const char *path,
  * (i.e. STATIC).  This keeps existing Phase 9b/9c saved files byte-identical
  * across re-saves that did not touch the counter-mode toggle.
  */
-bool flipper_subghz_save_key_full(const char *path,
+bool subghz_file_save_key_full(const char *path,
                                    uint32_t    frequency,
                                    const char *preset,
                                    const char *protocol,
@@ -813,9 +813,9 @@ bool flipper_subghz_save_key_full(const char *path,
                                    uint64_t    key,
                                    uint32_t    te,
                                    const char *manufacture,
-                                   flipper_subghz_counter_mode_t counter_mode)
+                                   subghz_file_counter_mode_t counter_mode)
 {
-	flipper_file_t ff;
+	ff_file_t ff;
 	bool result = true;
 	char key_str[32];
 
@@ -874,8 +874,8 @@ bool flipper_subghz_save_key_full(const char *path,
 /**
  * @brief  Lightweight M1 native .sgh PACKET save — writes from individual fields.
  *
- * Equivalent to flipper_subghz_save_m1native() but avoids the need for a
- * flipper_subghz_signal_t at the call site.
+ * Equivalent to subghz_file_save_m1native() but avoids the need for a
+ * subghz_file_signal_t at the call site.
  *
  * @param  path      FatFs path for the output file
  * @param  frequency Carrier frequency in Hz
@@ -886,11 +886,11 @@ bool flipper_subghz_save_key_full(const char *path,
  * @param  te        Timing element (0 to omit)
  * @return true on success
  */
-bool flipper_subghz_save_m1native_key(const char *path, uint32_t frequency,
+bool subghz_file_save_m1native_key(const char *path, uint32_t frequency,
                                        const char *preset, const char *protocol,
                                        uint32_t bit_count, uint64_t key, uint32_t te)
 {
-	flipper_file_t ff;
+	ff_file_t ff;
 	bool result = true;
 	char buf[32];
 
@@ -963,7 +963,7 @@ static const char *stristr(const char *haystack, const char *needle)
  * @param  preset  Flipper preset string (e.g., "FuriHalSubGhzPresetOok650Async")
  * @return M1 modulation type (S_M1_SubGHz_Modulation enum value)
  */
-uint8_t flipper_subghz_preset_to_modulation(const char *preset)
+uint8_t subghz_file_preset_to_modulation(const char *preset)
 {
 	if (preset == NULL)
 		return (uint8_t)MODULATION_UNKNOWN;
@@ -990,7 +990,7 @@ uint8_t flipper_subghz_preset_to_modulation(const char *preset)
  * @param  freq_hz  frequency in Hz (e.g., 433920000)
  * @return M1 Sub-GHz band enum value (S_M1_SubGHz_Band)
  */
-uint8_t flipper_subghz_freq_to_band(uint32_t freq_hz)
+uint8_t subghz_file_freq_to_band(uint32_t freq_hz)
 {
 	/* Convert to MHz for comparison */
 	uint32_t freq_mhz = freq_hz / 1000000;

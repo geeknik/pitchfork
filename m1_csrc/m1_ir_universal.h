@@ -51,6 +51,14 @@ typedef struct {
 /* Main entry point - called from m1_infrared.c */
 void ir_universal_run(void);
 
+/* Flattened section entry points — the Infrared menu lists these directly
+ * (skips the old dashboard screen). Each opens one section with its own
+ * init/deinit. */
+void ir_open_remotes(void);    /* shipped universal IRDB */
+void ir_open_learned(void);    /* user-saved / learned remotes */
+void ir_open_favorites(void);
+void ir_open_recent(void);
+
 /* Initialize/cleanup */
 void ir_universal_init(void);
 void ir_universal_deinit(void);

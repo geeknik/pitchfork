@@ -130,6 +130,13 @@ uint8_t m1_esp_client_softap_sta_count(void);
 bool m1_esp_client_softap_status(uint8_t *count, uint8_t *internet_shared);
 bool m1_esp_client_ble_spam_stop(void);
 
+/* BLE beacon emulator (iBeacon / Eddystone-URL). Broadcasts one stable
+ * non-connectable advertisement until _stop(). Shares the spam adv slot. */
+bool m1_esp_client_ble_beacon_ibeacon(const uint8_t uuid[16], uint16_t major,
+                                      uint16_t minor, signed char tx_power);
+bool m1_esp_client_ble_beacon_eddystone(const char *url);
+bool m1_esp_client_ble_beacon_stop(void);
+
 /* Push a framebuffer to the ESP (for qMonstatek forwarding). */
 bool m1_esp_client_screen_push(const uint8_t *fb, uint16_t len);
 

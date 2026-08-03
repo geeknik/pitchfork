@@ -3,7 +3,7 @@
 /*
  * subghz_raw_line_parser.c
  *
- * RAW_Data line parser — extracted from sub_ghz_replay_flipper_file()
+ * RAW_Data line parser — extracted from sub_ghz_replay_ff_file()
  * in m1_sub_ghz.c (lines 1675-1722 and 1534-1597).
  *
  * Parses Flipper's signed raw timing values into absolute-value samples,

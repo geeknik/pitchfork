@@ -29,8 +29,8 @@
 
 #ifdef M1_APP_FILE_IMPORT_ENABLE
 #include "m1_ir_universal.h"
-#include "flipper_ir.h"
-#include "flipper_file.h"
+#include "ir_file.h"
+#include "ff_file.h"
 #endif
 
 
@@ -90,10 +90,24 @@ static bool ir_save_learned_signal(const IRMP_DATA *data);
  * "This function initializes display for this sub-menu item.
  */
 /*============================================================================*/
+/* Orientation the user had when entering the Infrared folder. Remote Mode is a
+ * temporary rotation (device held like a handheld remote); it is undone when
+ * you leave IR so the rest of the UI isn't left sideways. */
+static uint8_t s_ir_entry_orient = M1_ORIENT_NORMAL;
+
+static void ir_apply_orientation(uint8_t orient)
+{
+	m1_screen_orientation = orient;
+	m1_southpaw_mode = (orient == M1_ORIENT_SOUTHPAW) ? 1 : 0;
+	u8g2_SetDisplayRotation(&m1_u8g2,
+		orient == M1_ORIENT_SOUTHPAW ? U8G2_R0 :
+		orient == M1_ORIENT_REMOTE   ? U8G2_R1 : U8G2_R2);
+}
+
 void menu_infrared_init(void)
 {
-	;
 	new_remote_learned = 0;
+	s_ir_entry_orient = m1_screen_orientation;   /* remember so Remote Mode can revert on exit */
 } // void menu_infrared_init(void)
 
 
@@ -101,12 +115,30 @@ void menu_infrared_init(void)
 /*============================================================================*/
 /*
  * This function will exit this sub-menu and return to the upper level menu.
+ * Undo any temporary Remote Mode rotation on the way out.
  */
 /*============================================================================*/
 void menu_infrared_exit(void)
 {
-	;
+	if (m1_screen_orientation != s_ir_entry_orient)
+		ir_apply_orientation(s_ir_entry_orient);
 } // void menu_infrared_exit(void)
+
+
+
+/*============================================================================*/
+/*
+ * Remote Mode toggle: rotate the display so the M1 is used like a handheld
+ * remote (landscape), or back to how you entered IR. Menu leaf sub-function.
+ */
+/*============================================================================*/
+void ir_toggle_remote_mode(void)
+{
+	if (m1_screen_orientation == M1_ORIENT_REMOTE)
+		ir_apply_orientation(s_ir_entry_orient);   /* back to entry orientation */
+	else
+		ir_apply_orientation(M1_ORIENT_REMOTE);
+} // void ir_toggle_remote_mode(void)
 
 
 
@@ -572,8 +604,8 @@ static bool ir_find_next_filename(char *path, size_t path_size)
 /*============================================================================*/
 static bool ir_save_learned_signal(const IRMP_DATA *data)
 {
-	flipper_file_t ff;
-	flipper_ir_signal_t sig;
+	ff_file_t ff;
+	ir_file_signal_t sig;
 	char path[64];
 	const char *proto_name;
 
@@ -586,7 +618,7 @@ static bool ir_save_learned_signal(const IRMP_DATA *data)
 	if (!ff_open_write(&ff, path))
 		return false;
 
-	if (!flipper_ir_write_header(&ff))
+	if (!ir_file_write_header(&ff))
 	{
 		ff_close(&ff);
 		return false;
@@ -598,7 +630,7 @@ static bool ir_save_learned_signal(const IRMP_DATA *data)
 	sig.valid = true;
 
 	/* Build a descriptive name from protocol */
-	proto_name = flipper_ir_irmp_to_proto(data->protocol);
+	proto_name = ir_file_irmp_to_proto(data->protocol);
 	snprintf(sig.name, FLIPPER_IR_NAME_MAX_LEN, "%s_%04X", proto_name, data->command);
 
 	sig.parsed.protocol = data->protocol;
@@ -606,7 +638,7 @@ static bool ir_save_learned_signal(const IRMP_DATA *data)
 	sig.parsed.command = data->command;
 	sig.parsed.flags = data->flags;
 
-	if (!flipper_ir_write_signal(&ff, &sig))
+	if (!ir_file_write_signal(&ff, &sig))
 	{
 		ff_close(&ff);
 		return false;
@@ -948,3 +980,142 @@ static void infrared_encode_timer_cb(TimerHandle_t xTimer)
 	 * every software timer if main_q_hdl is full. See battery_info_timer. */
 	(void)xQueueSend(main_q_hdl, &q_item, 0);
 } // static void infrared_encode_timer_cb(TimerHandle_t xTimer)
+
+
+
+/*============================================================================*/
+/* SDK primitive API — app-callable IR verbs.
+ *
+ * These live in m1_infrared.c for file-scope access to the encoder/decoder
+ * statics (infrared_decode_sys_init/deinit) and the OTA-TX globals. All use
+ * PLAIN types so apps never need firmware structs. Exported by name in
+ * m1_app_api.c; declared in the SDK header m1app.h. Every verb is self-contained
+ * (init -> op -> deinit) and blocking, so an app just calls and gets a result.
+ */
+/*============================================================================*/
+
+/* App-facing raw OTA buffer (separate from the universal-remote module's). +1:
+ * the TX ISR reads pir_ota_data_tx_buffer[++counter], touching element [len]. */
+static uint16_t s_ir_app_ota[512 + 1];
+
+/* Transmit an encoded protocol frame (NEC/Sony/RC5/... — protocol = IRMP id;
+ * see m1_ir_protocol_name). Blocking; returns true when the frame has played. */
+bool m1_ir_send(uint8_t protocol, uint16_t address, uint16_t command, uint8_t repeat)
+{
+	IRMP_DATA d;
+	d.protocol = protocol;
+	d.address  = address;
+	d.command  = command;
+	d.flags    = repeat;
+
+	infrared_encode_sys_init();
+	irsnd_generate_tx_data(d);
+	infrared_transmit(1);                 /* init the TX state machine */
+	infrared_transmit(0);                 /* kick off (starts the baseband timer) */
+
+	uint32_t t0 = HAL_GetTick();
+	while (ir_ota_data_tx_active && (HAL_GetTick() - t0) < 4000)
+		vTaskDelay(pdMS_TO_TICKS(1));
+	infrared_transmit(0);                 /* let the state machine finalize/stop timer */
+	infrared_encode_sys_deinit();
+	return true;
+}
+
+/* Transmit a raw mark/space timing list (microseconds, alternating, first is a
+ * mark). carrier_hz e.g. 38000. Blocking; returns true when done. */
+bool m1_ir_send_raw(uint32_t carrier_hz, const int32_t *samples, uint16_t count)
+{
+	if (samples == NULL || count == 0) return false;
+	if (count > 512) count = 512;
+
+	for (uint16_t i = 0; i < count; i++) {
+		uint32_t dur = (uint32_t)((samples[i] < 0) ? -samples[i] : samples[i]);
+		if (dur > 65534) dur = 65534;
+		if (dur < 2)     dur = 2;
+		/* even index = mark (LSB 1 = carrier ON), odd = space (LSB 0) */
+		s_ir_app_ota[i] = (i & 1) ? ((uint16_t)dur & 0xFFFE)
+		                          : ((uint16_t)dur | 0x0001);
+	}
+
+	infrared_encode_sys_init();
+	irsnd_set_carrier_freq(carrier_hz);
+
+	ir_ota_data_tx_active  = TRUE;
+	ir_ota_data_tx_counter = 0;
+	ir_ota_data_tx_len     = count;
+	pir_ota_data_tx_buffer = s_ir_app_ota;
+
+	__HAL_TIM_URS_ENABLE(&Timerhdl_IrTx);
+	Timerhdl_IrTx.Instance->ARR = s_ir_app_ota[0];
+	HAL_TIM_GenerateEvent(&Timerhdl_IrTx, TIM_EVENTSOURCE_UPDATE);
+	__HAL_TIM_URS_DISABLE(&Timerhdl_IrTx);
+	if (HAL_IS_BIT_SET(Timerhdl_IrTx.Instance->SR, TIM_FLAG_UPDATE))
+		CLEAR_BIT(Timerhdl_IrTx.Instance->SR, TIM_FLAG_UPDATE);
+	if (s_ir_app_ota[0] & 0x0001) irsnd_on();
+	__HAL_TIM_ENABLE(&Timerhdl_IrTx);
+	if (count > 1)
+		Timerhdl_IrTx.Instance->ARR = s_ir_app_ota[++ir_ota_data_tx_counter];
+
+	uint32_t t0 = HAL_GetTick();
+	while (ir_ota_data_tx_active && (HAL_GetTick() - t0) < 4000)
+		vTaskDelay(pdMS_TO_TICKS(1));
+	__HAL_TIM_DISABLE(&Timerhdl_IrTx);
+	infrared_encode_sys_deinit();
+	return true;
+}
+
+/* Learn/decode one IR frame. Fills the (optional) out pointers. Blocking up to
+ * timeout_ms; returns true if a frame decoded. */
+bool m1_ir_receive(uint8_t *protocol, uint16_t *address, uint16_t *command, uint32_t timeout_ms)
+{
+	IRMP_DATA d;
+	bool got = false;
+	S_M1_Main_Q_t q;
+
+	infrared_decode_sys_init();
+	irmp_init();
+	uint32_t t0 = HAL_GetTick();
+	while ((HAL_GetTick() - t0) < timeout_ms) {
+		if (xQueueReceive(main_q_hdl, &q, pdMS_TO_TICKS(20)) == pdTRUE &&
+		    q.q_evt_type == Q_EVENT_IRRED_RX) {
+			irmp_data_sampler(q.q_data.ir_rx_data.ir_edge_te,
+			                  q.q_data.ir_rx_data.ir_edge_dir);
+			if (irmp_get_data(&d)) {
+				if (protocol) *protocol = d.protocol;
+				if (address)  *address  = d.address;
+				if (command)  *command  = d.command;
+				got = true;
+				break;
+			}
+		}
+	}
+	infrared_decode_sys_deinit();
+	xQueueReset(main_q_hdl);
+	return got;
+}
+
+/* Manual carrier blast (test/jam). Pair on()/off(). */
+void m1_ir_carrier_on(uint32_t freq)
+{
+	infrared_encode_sys_init();
+	irsnd_set_carrier_freq(freq);
+	irsnd_on();
+}
+
+void m1_ir_carrier_off(void)
+{
+	irsnd_off();
+	infrared_encode_sys_deinit();
+}
+
+/* IRMP protocol id -> name (e.g. 2 -> "NEC"). */
+const char *m1_ir_protocol_name(uint8_t irmp_id)
+{
+	if (irmp_id > IRMP_N_PROTOCOLS) return "UNKNOWN";
+	return irmp_protocol_names[irmp_id];
+}
+
+uint8_t m1_ir_protocol_count(void)
+{
+	return IRMP_N_PROTOCOLS;
+}

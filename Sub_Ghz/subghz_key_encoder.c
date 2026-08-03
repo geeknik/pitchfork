@@ -3,7 +3,7 @@
 /*
  * subghz_key_encoder.c
  *
- * KEY→RAW OOK PWM encoder — extracted from sub_ghz_replay_flipper_file()
+ * KEY→RAW OOK PWM encoder — extracted from sub_ghz_replay_ff_file()
  * in m1_sub_ghz.c (lines 1735-1850).
  *
  * This module is hardware-independent.  It uses only the protocol registry

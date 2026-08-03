@@ -1,7 +1,7 @@
 /* See COPYING.txt for license details. */
 
 /*
- * flipper_rfid.c
+ * rfid_file.c
  *
  * Flipper Zero .rfid file format parser
  *
@@ -16,7 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
-#include "flipper_rfid.h"
+#include "rfid_file.h"
 
 /*************************** D E F I N E S ************************************/
 
@@ -29,7 +29,7 @@
  * @brief  RFID protocol mapping entry
  */
 typedef struct {
-	const char     *flipper_name;
+	const char     *ff_name;
 	LFRFIDProtocol  protocol;
 } rfid_proto_map_t;
 
@@ -118,16 +118,16 @@ static int rfid_strcasecmp(const char *a, const char *b)
  * @param  name  protocol name from .rfid file (e.g., "EM4100", "H10301")
  * @return LFRFIDProtocol enum value, or LFRFIDProtocolMax if not recognized
  */
-LFRFIDProtocol flipper_rfid_parse_protocol(const char *name)
+LFRFIDProtocol rfid_file_parse_protocol(const char *name)
 {
 	const rfid_proto_map_t *entry;
 
 	if (name == NULL)
 		return LFRFIDProtocolMax;
 
-	for (entry = rfid_proto_table; entry->flipper_name != NULL; entry++)
+	for (entry = rfid_proto_table; entry->ff_name != NULL; entry++)
 	{
-		if (rfid_strcasecmp(name, entry->flipper_name) == 0)
+		if (rfid_strcasecmp(name, entry->ff_name) == 0)
 			return entry->protocol;
 	}
 
@@ -144,10 +144,10 @@ static const char *rfid_protocol_to_name(LFRFIDProtocol protocol)
 {
 	const rfid_proto_map_t *entry;
 
-	for (entry = rfid_proto_table; entry->flipper_name != NULL; entry++)
+	for (entry = rfid_proto_table; entry->ff_name != NULL; entry++)
 	{
 		if (entry->protocol == protocol)
-			return entry->flipper_name;
+			return entry->ff_name;
 	}
 
 	return "Unknown";
@@ -167,14 +167,14 @@ static const char *rfid_protocol_to_name(LFRFIDProtocol protocol)
  * @param  out   output tag structure
  * @return true on success
  */
-bool flipper_rfid_load(const char *path, flipper_rfid_tag_t *out)
+bool rfid_file_load(const char *path, rfid_file_tag_t *out)
 {
-	flipper_file_t ff;
+	ff_file_t ff;
 
 	if (path == NULL || out == NULL)
 		return false;
 
-	memset(out, 0, sizeof(flipper_rfid_tag_t));
+	memset(out, 0, sizeof(rfid_file_tag_t));
 	out->protocol = LFRFIDProtocolMax;  /* Mark as unknown initially */
 
 	if (!ff_open(&ff, path))
@@ -201,7 +201,7 @@ bool flipper_rfid_load(const char *path, flipper_rfid_tag_t *out)
 			strncpy(out->protocol_name, ff_get_value(&ff),
 			        sizeof(out->protocol_name) - 1);
 			out->protocol_name[sizeof(out->protocol_name) - 1] = '\0';
-			out->protocol = flipper_rfid_parse_protocol(ff_get_value(&ff));
+			out->protocol = rfid_file_parse_protocol(ff_get_value(&ff));
 		}
 		else if (rfid_strcasecmp(ff_get_key(&ff), "Data") == 0)
 		{
@@ -224,9 +224,9 @@ bool flipper_rfid_load(const char *path, flipper_rfid_tag_t *out)
  * @param  tag   tag structure to save
  * @return true on success
  */
-bool flipper_rfid_save(const char *path, const flipper_rfid_tag_t *tag)
+bool rfid_file_save(const char *path, const rfid_file_tag_t *tag)
 {
-	flipper_file_t ff;
+	ff_file_t ff;
 	bool result = true;
 	const char *proto_name;
 

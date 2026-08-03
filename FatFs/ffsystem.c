@@ -4,6 +4,20 @@
 
 #include "ff.h"
 
+#if FF_FS_REENTRANT
+#include "FreeRTOS.h"
+#include "task.h"
+#include "semphr.h"
+
+/* FatFs requests one mutex per volume (plus an optional system mutex). The
+ * previous sample implementation returned success without taking anything,
+ * leaving SD reads from the menu and qM's RPC worker free to overlap. Static
+ * storage keeps this available during early boot as well as after scheduling. */
+#define FF_MUTEX_COUNT  (FF_VOLUMES + 1)
+static StaticSemaphore_t s_ff_mutex_storage[FF_MUTEX_COUNT];
+static SemaphoreHandle_t s_ff_mutex[FF_MUTEX_COUNT];
+#endif
+
 
 #if FF_USE_LFN == 3	/* Use dynamic memory allocation */
 
@@ -47,7 +61,11 @@ int ff_mutex_create (	/* Returns 1:Function succeeded or 0:Could not create the 
 	int vol				/* Mutex ID: Volume mutex (0 to FF_VOLUMES - 1) or system mutex (FF_VOLUMES) */
 )
 {
-  return 1;
+  if (vol < 0 || vol >= FF_MUTEX_COUNT)
+    return 0;
+  if (s_ff_mutex[vol] == NULL)
+    s_ff_mutex[vol] = xSemaphoreCreateMutexStatic(&s_ff_mutex_storage[vol]);
+  return s_ff_mutex[vol] != NULL;
 }
 
 
@@ -62,7 +80,9 @@ void ff_mutex_delete (	/* Returns 1:Function succeeded or 0:Could not delete due
 	int vol				/* Mutex ID: Volume mutex (0 to FF_VOLUMES - 1) or system mutex (FF_VOLUMES) */
 )
 {
-  return 1;
+  /* Static FreeRTOS mutex storage lives for the firmware lifetime. FatFs calls
+   * this only while unmounting, and the next mount reuses the same lock. */
+  (void)vol;
 }
 
 
@@ -77,7 +97,13 @@ int ff_mutex_take (	/* Returns 1:Succeeded or 0:Timeout */
 	int vol			/* Mutex ID: Volume mutex (0 to FF_VOLUMES - 1) or system mutex (FF_VOLUMES) */
 )
 {
-  return 1;
+  if (vol < 0 || vol >= FF_MUTEX_COUNT || s_ff_mutex[vol] == NULL)
+    return 0;
+  /* Early boot is single-threaded. A timed FreeRTOS wait is invalid before the
+   * scheduler starts, so leave the already-created mutex untouched there. */
+  if (xTaskGetSchedulerState() == taskSCHEDULER_NOT_STARTED)
+    return 1;
+  return xSemaphoreTake(s_ff_mutex[vol], FF_FS_TIMEOUT) == pdTRUE;
 }
 
 
@@ -92,7 +118,10 @@ void ff_mutex_give (
 	int vol			/* Mutex ID: Volume mutex (0 to FF_VOLUMES - 1) or system mutex (FF_VOLUMES) */
 )
 {
-  return 1;
+  if (vol < 0 || vol >= FF_MUTEX_COUNT || s_ff_mutex[vol] == NULL)
+    return;
+  if (xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED)
+    xSemaphoreGive(s_ff_mutex[vol]);
 }
 
 #endif	/* FF_FS_REENTRANT */

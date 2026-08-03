@@ -3,7 +3,7 @@
 /*
  * subghz_raw_line_parser.h
  *
- * RAW_Data line parser — extracted from sub_ghz_replay_flipper_file().
+ * RAW_Data line parser — extracted from sub_ghz_replay_ff_file().
  *
  * Handles Flipper's RAW_Data format:
  *   - Signed values (negative → absolute value)

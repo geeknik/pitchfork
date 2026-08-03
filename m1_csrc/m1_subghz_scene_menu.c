@@ -41,19 +41,19 @@
 /* Menu items                                                                 */
 /*============================================================================*/
 
-#define MENU_ITEM_COUNT   14
+/* The six analyzers (Frequency Analyzer, Spectrum Analyzer, RSSI Meter, Freq
+ * Scanner, Weather Station, Brute Force) were moved OUT to .m1app apps against
+ * the exported sub_ghz_* primitives — install them from the App Catalog. The
+ * built-in menu keeps the core create/capture/playback flow. Their scene ids
+ * and handlers still exist (just no longer menu-reachable), so nothing else
+ * needs touching. Proto Pirate stays until its app lands. */
+#define MENU_ITEM_COUNT   8
 
 static const char *menu_labels[MENU_ITEM_COUNT] = {
     "Read",
     "Read Raw",
     "Saved",
     "Playlist",
-    "Frequency Analyzer",
-    "Spectrum Analyzer",
-    "RSSI Meter",
-    "Freq Scanner",
-    "Weather Station",
-    "Brute Force",
     "Add Manually",
     "Remote",
     "Bind Remote",
@@ -65,12 +65,6 @@ static const SubGhzSceneId menu_targets[MENU_ITEM_COUNT] = {
     SubGhzSceneReadRaw,
     SubGhzSceneSaved,
     SubGhzScenePlaylist,
-    SubGhzSceneFreqAnalyzer,
-    SubGhzSceneSpectrumAnalyzer,
-    SubGhzSceneRssiMeter,
-    SubGhzSceneFreqScanner,
-    SubGhzSceneWeatherStation,
-    SubGhzSceneBruteForce,
     SubGhzSceneSetType,   /* "Add Manually" — Phase 8b-4 retired the blocking delegate */
     SubGhzSceneRemote,
     SubGhzSceneBindWizard,

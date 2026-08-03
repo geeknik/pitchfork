@@ -3,7 +3,7 @@
 /*
  * subghz_key_encoder.h
  *
- * Extract from sub_ghz_replay_flipper_file() — the KEY→RAW OOK PWM
+ * Extract from sub_ghz_replay_ff_file() — the KEY→RAW OOK PWM
  * encoding logic.  Converts a protocol name + key value + bit count
  * into raw timing samples using the protocol registry for timing lookup.
  *

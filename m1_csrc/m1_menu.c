@@ -25,6 +25,7 @@
 #include "m1_peer_link.h"   /* M1<->M1 ESP-NOW peer link (Tools) */
 #include "m1_field_detector.h"   /* NFC/RFID reader-field detector (Tools) */
 #include "m1_infrared.h"
+#include "m1_ir_universal.h"
 #include "m1_nfc.h"
 #include "m1_rfid.h"
 #include "m1_settings.h"
@@ -42,7 +43,6 @@
 #include "m1_compile_cfg.h"
 
 #ifdef M1_APP_FILE_IMPORT_ENABLE
-#include "m1_flipper_integration.h"
 #endif
 
 /*************************** D E F I N E S ************************************/
@@ -53,14 +53,24 @@
 
 /*----------------------------- > Sub-GHz ------------------------------------*/
 
-/* Sub-GHz cutover to hapax scene engine: the entire subsystem (Read, Saved,
- * Add Manually, Frequency Reader, Spectrum, RSSI, Freq Scanner, Weather, Brute
- * Force, Regional, Radio Settings, Jammer) is now driven internally by the
- * scene manager. The top-level menu is a single leaf action into
- * sub_ghz_scene_entry(); all former sub-item structs are retired. */
+/* Sub-GHz is a folder of core built-in leaves — same shape as RFID. Each leaf
+ * launches the hapax scene engine directly at its scene (BACK exits to here). The
+ * analyzers (RSSI/Spectrum/Freq Scanner/Freq Analyzer/Weather/Brute Force) and the
+ * scene tools (Proto Pirate/Playlist/Bind Remote) ship as subghz-tagged .m1app
+ * apps and append into this folder automatically. "Remote" was dropped (it just
+ * replays saved signals — Saved already does that). reserved=1 on each leaf so the
+ * scene engine owns screen orientation. */
+S_M1_Menu_t menu_Sub_GHz_Read     = { "Read",     sub_ghz_read_entry,     NULL, NULL, 0, 1, NULL, NULL, NULL };
+S_M1_Menu_t menu_Sub_GHz_ReadRaw  = { "Read Raw", sub_ghz_read_raw_entry, NULL, NULL, 0, 1, NULL, NULL, NULL };
+S_M1_Menu_t menu_Sub_GHz_Saved    = { "Saved",    sub_ghz_saved_entry,    NULL, NULL, 0, 1, NULL, NULL, NULL };
+S_M1_Menu_t menu_Sub_GHz_Add      = { "Add",      sub_ghz_add_entry,      NULL, NULL, 0, 1, NULL, NULL, NULL };
+/* Radio Settings — freq/mod/hopping/TX power/ISM region (incl. the "disable region"
+ * option). Kept built-in (not an app) since it configures the core radio. */
+S_M1_Menu_t menu_Sub_GHz_Radio    = { "Radio Settings", sub_ghz_radio_settings_entry, NULL, NULL, 0, 1, NULL, NULL, NULL };
 S_M1_Menu_t menu_Sub_GHz =
 {
-    "Sub-GHz", sub_ghz_scene_entry, NULL, NULL, 0, 1, menu_m1_icon_wave, NULL, {0}   /* reserved=1: Sub-GHz manages orientation per-scene */
+    "Sub-GHz", NULL, NULL, NULL, 5, 0, menu_m1_icon_wave, NULL,
+    {&menu_Sub_GHz_Read, &menu_Sub_GHz_ReadRaw, &menu_Sub_GHz_Saved, &menu_Sub_GHz_Add, &menu_Sub_GHz_Radio}
 };
 
 /*----------------------------- > 125KHz RFID --------------------------------*/
@@ -81,29 +91,16 @@ S_M1_Menu_t menu_125KHz_RFID_Add_Manually =
     "Add", rfid_125khz_add_manually, NULL, NULL, 0, 0, NULL, NULL, NULL
 };
 
-S_M1_Menu_t menu_125KHz_RFID_Utilities =
-{
-    "Utilities", rfid_125khz_utilities, NULL, NULL, 0, 0, NULL, NULL, NULL
-};
-
-#ifdef M1_APP_FILE_IMPORT_ENABLE
-S_M1_Menu_t menu_125KHz_RFID_Import =
-{
-    "Import .rfid", rfid_import_flipper, NULL, NULL, 0, 0, NULL, NULL, NULL
-};
-
+/* RFID is core, always-present hardware, so Read / Saved / Add are built-in
+ * (Add carries the shipped card database). The utilities — Erase / T5577 Info /
+ * Fuzzer / Brute-Force FC — ship as rfid-tagged .m1app apps and append into this
+ * folder automatically. "Clone Card" was dropped (redundant: Read can write the
+ * captured card straight to a T5577) and "Import .rfid" was removed (broken). */
 S_M1_Menu_t menu_125KHz_RFID =
 {
-    "RFID", menu_125khz_rfid_init, menu_125khz_rfid_deinit, NULL, 5, 0, menu_m1_icon_rfid, NULL,
-    {&menu_125KHz_RFID_Read, &menu_125KHz_RFID_Saved, &menu_125KHz_RFID_Add_Manually, &menu_125KHz_RFID_Import, &menu_125KHz_RFID_Utilities}
+    "RFID", menu_125khz_rfid_init, menu_125khz_rfid_deinit, NULL, 3, 0, menu_m1_icon_rfid, NULL,
+    {&menu_125KHz_RFID_Read, &menu_125KHz_RFID_Saved, &menu_125KHz_RFID_Add_Manually}
 };
-#else
-S_M1_Menu_t menu_125KHz_RFID =
-{
-    "RFID", menu_125khz_rfid_init, menu_125khz_rfid_deinit, NULL, 4, 0, menu_m1_icon_rfid, NULL,
-    {&menu_125KHz_RFID_Read, &menu_125KHz_RFID_Saved, &menu_125KHz_RFID_Add_Manually, &menu_125KHz_RFID_Utilities}
-};
-#endif
 
 /*-------------------------------- > NFC -------------------------------------*/
 
@@ -145,25 +142,46 @@ S_M1_Menu_t menu_NFC =
 
 /*----------------------------- > Infrared -----------------------------------*/
 
-S_M1_Menu_t menu_Infrared_Universal_Remotes =
-{
-    "Universal Remotes", infrared_universal_remotes, NULL, NULL, 0, 1, NULL, NULL, NULL   /* reserved=1: IR manages orientation (Remote mode) */
-};
-
-S_M1_Menu_t menu_Infrared_Learn_New_Remote =
+/* Flattened IR menu: Learn (capture+save) up top, then the browser sections
+ * surfaced directly (no dashboard middle screen, no redundant Replay — which
+ * was identical to Universal Remotes). "Remotes" = the shipped IRDB; "Learned"
+ * = your captures. reserved=1: each section manages its own orientation. */
+S_M1_Menu_t menu_Infrared_Learn =
 {
     "Learn", infrared_learn_new_remote, NULL, NULL, 0, 0, NULL, NULL, NULL
 };
 
-S_M1_Menu_t menu_Infrared_Saved_Remotes =
+S_M1_Menu_t menu_Infrared_Remotes =
 {
-    "Replay", infrared_saved_remotes, NULL, NULL, 0, 0, NULL, NULL, NULL
+    "Remotes", ir_open_remotes, NULL, NULL, 0, 1, NULL, NULL, NULL
 };
 
+S_M1_Menu_t menu_Infrared_Learned =
+{
+    "Learned", ir_open_learned, NULL, NULL, 0, 1, NULL, NULL, NULL
+};
+
+S_M1_Menu_t menu_Infrared_Favorites =
+{
+    "Favorites", ir_open_favorites, NULL, NULL, 0, 1, NULL, NULL, NULL
+};
+
+S_M1_Menu_t menu_Infrared_Recent =
+{
+    "Recent", ir_open_recent, NULL, NULL, 0, 1, NULL, NULL, NULL
+};
+
+S_M1_Menu_t menu_Infrared_Remote_Mode =
+{
+    "Remote Mode", ir_toggle_remote_mode, NULL, NULL, 0, 1, NULL, NULL, NULL
+};
+
+/* deinit_func = menu_infrared_exit reverts a Remote Mode rotation when you back
+ * out of the IR folder, so the rest of the UI isn't left sideways. */
 S_M1_Menu_t menu_Infrared =
 {
-    "Infrared", menu_infrared_init, NULL, NULL, 3, 0, menu_m1_icon_infrared, NULL,
-    {&menu_Infrared_Universal_Remotes, &menu_Infrared_Learn_New_Remote, &menu_Infrared_Saved_Remotes}
+    "Infrared", menu_infrared_init, menu_infrared_exit, NULL, 6, 0, menu_m1_icon_infrared, NULL,
+    {&menu_Infrared_Learn, &menu_Infrared_Remotes, &menu_Infrared_Learned, &menu_Infrared_Favorites, &menu_Infrared_Recent, &menu_Infrared_Remote_Mode}
 };
 
 /*------------------------------- > GPIO -------------------------------------*/
@@ -196,24 +214,12 @@ S_M1_Menu_t menu_GPIO =
 
 /*------------------------------- > TOOLS ------------------------------------*/
 
-S_M1_Menu_t menu_Tools_I2C_Scan =
-{
-    "I2C Scanner", tool_i2c_scanner, NULL, NULL, 0, 0, NULL, NULL, NULL
-};
-
-S_M1_Menu_t menu_Tools_Pin_Reader =
-{
-    "Pin Reader", tool_pin_reader, NULL, NULL, 0, 0, NULL, NULL, NULL
-};
-
+/* I2C Scanner + Pin Reader moved to the GPIO folder (menu_GPIO_*). Field
+ * Detector ships as an app (nfc_rfid_detector.m1app). The Tools built-in keeps
+ * the two peer-to-peer utilities as defaults; tools-tagged apps append after. */
 S_M1_Menu_t menu_Tools_Peer_Link =
 {
     "Peer Link", m1_peer_link_run, NULL, NULL, 0, 0, NULL, NULL, NULL
-};
-
-S_M1_Menu_t menu_Tools_Field_Detect =
-{
-    "Field Detector", m1_field_detector_run, NULL, NULL, 0, 0, NULL, NULL, NULL
 };
 
 S_M1_Menu_t menu_Tools_Peer_Recover =
@@ -223,8 +229,8 @@ S_M1_Menu_t menu_Tools_Peer_Recover =
 
 S_M1_Menu_t menu_Tools =
 {
-    "Tools", NULL, NULL, NULL, 5, 0, menu_m1_icon_gpio, NULL,
-    {&menu_Tools_I2C_Scan, &menu_Tools_Pin_Reader, &menu_Tools_Peer_Link, &menu_Tools_Field_Detect, &menu_Tools_Peer_Recover}
+    "Tools", NULL, NULL, NULL, 2, 0, menu_m1_icon_gpio, NULL,
+    {&menu_Tools_Peer_Link, &menu_Tools_Peer_Recover}
 };
 
 /*------------------------------- > Settings ---------------------------------*/
@@ -654,14 +660,14 @@ typedef struct {
 static const menu_cat_t k_cats[] = {
     { "wifi",      "Wifi",      menu_m1_icon_wifi,      &menu_Wifi      },
     { "bluetooth", "Bluetooth", menu_m1_icon_bluetooth, &menu_Bluetooth },
-    { "subghz",    "Sub-GHz",   menu_m1_icon_wave,      NULL            },
-    { "rfid",      "RFID",      menu_m1_icon_rfid,      NULL            },
+    { "subghz",    "Sub-GHz",   menu_m1_icon_wave,      &menu_Sub_GHz   },
+    { "rfid",      "RFID",      menu_m1_icon_rfid,      &menu_125KHz_RFID },
     { "nfc",       "NFC",       menu_m1_icon_nfc,       NULL            },
-    { "ir",        "Infrared",  menu_m1_icon_infrared,  NULL            },
-    { "gpio",      "GPIO",      menu_m1_icon_gpio,      NULL            },
+    { "ir",        "Infrared",  menu_m1_icon_infrared,  &menu_Infrared  },
+    { "gpio",      "GPIO",      menu_m1_icon_gpio,      &menu_GPIO      },
     { "games",     "Games",     menu_m1_icon_games,     NULL            },
     { "apps",      "Apps",      menu_m1_icon_apps,      NULL            },
-    { "tools",     "Tools",     menu_m1_icon_gpio,      NULL            },
+    { "tools",     "Tools",     menu_m1_icon_gpio,      &menu_Tools     },
     { "settings",  "Settings",  menu_m1_icon_setting,   &menu_Settings  },
 };
 #define MENU_CAT_COUNT ((int)(sizeof(k_cats) / sizeof(k_cats[0])))
@@ -697,6 +703,10 @@ static void menu_layout_empty_folder(void)
 /* ---- App launch entries: each is a leaf whose sub_func runs a specific .m1app ---- */
 #define MENU_MAX_APP_ENTRIES M1_APPS_MAX_FILES
 #define MENU_APP_PATH_LEN    128
+/* menu.cfg placement list: holds APP + ITEM lines. Sized for all apps plus a
+ * generous margin of built-in ITEM lines (there are ~60 built-in leaves total). */
+#define MENU_CFG_MAX_ORD      (MENU_MAX_APP_ENTRIES + 128)
+#define MENU_CFG_ORD_NAME_LEN 40   /* fits both .m1app filenames and built-in titles (MENU_TITLE_LEN=30) */
 #define MENU_CFG_MAX_BYTES   4096
 
 static struct {
@@ -748,8 +758,14 @@ typedef struct {
     int  n_order;
     bool sort_custom[MENU_CAT_COUNT];
     bool sort_alpha_desc[MENU_CAT_COUNT];
-    struct { int cat; char file[40]; } placed[MENU_MAX_APP_ENTRIES];
-    int  n_placed;
+    bool hidden_cat[MENU_CAT_COUNT];   /* MENU line carried a "hidden" token */
+    /* Unified ordered placement list — captures APP lines (is_app=1, name=file)
+     * AND ITEM lines (is_app=0, name=built-in leaf title) in file order, so a
+     * category's built-in items and apps can be interleaved in a custom order.
+     * A "hidden" entry (from a HAPP/HITEM line) still matches its item so the
+     * builder consumes it, but the item is dropped instead of displayed. */
+    struct { int cat; bool is_app; bool hidden; char name[MENU_CFG_ORD_NAME_LEN]; } ord[MENU_CFG_MAX_ORD];
+    int  n_ord;
 } menu_cfg_t;
 
 /* Parse the whole menu.cfg into cfg. Returns n_order (0 => no/corrupt file =>
@@ -792,35 +808,73 @@ static int menu_cfg_parse(menu_cfg_t *cfg)
                 if (!dup && cfg->n_order < MENU_CAT_COUNT) cfg->order[cfg->n_order++] = ci;
                 if (strstr(ke, "sort=custom")) cfg->sort_custom[ci] = true;
                 else if (strstr(ke, "sort=alpha-desc")) cfg->sort_alpha_desc[ci] = true;
+                if (strstr(ke, "hidden")) cfg->hidden_cat[ci] = true;
             }
         } else if (strncmp(p, "APP ", 4) == 0 && cur_cat >= 0 &&
-                   cfg->n_placed < MENU_MAX_APP_ENTRIES) {
+                   cfg->n_ord < MENU_CFG_MAX_ORD) {
+            /* App placement/order: name is a single token (.m1app filename). */
             char *fn = p + 4;
             while (*fn == ' ' || *fn == '\t') fn++;
             char *fe = fn;
             while (*fe && *fe != ' ' && *fe != '\t' && *fe != '\r') fe++;
             *fe = 0;
             if (*fn) {
-                cfg->placed[cfg->n_placed].cat = cur_cat;
-                strncpy(cfg->placed[cfg->n_placed].file, fn,
-                        sizeof(cfg->placed[0].file) - 1);
-                cfg->n_placed++;
+                cfg->ord[cfg->n_ord].cat    = cur_cat;
+                cfg->ord[cfg->n_ord].is_app = true;
+                strncpy(cfg->ord[cfg->n_ord].name, fn, MENU_CFG_ORD_NAME_LEN - 1);
+                cfg->n_ord++;
+            }
+        } else if (strncmp(p, "ITEM ", 5) == 0 && cur_cat >= 0 &&
+                   cfg->n_ord < MENU_CFG_MAX_ORD) {
+            /* Built-in item order: name is the leaf title, which may contain
+             * spaces (e.g. "GPIO Control"), so take the rest of the line. */
+            char *tn = p + 5;
+            while (*tn == ' ' || *tn == '\t') tn++;
+            char *te = tn + strlen(tn);
+            while (te > tn && (te[-1] == ' ' || te[-1] == '\t' || te[-1] == '\r')) te--;
+            *te = 0;
+            if (*tn) {
+                cfg->ord[cfg->n_ord].cat    = cur_cat;
+                cfg->ord[cfg->n_ord].is_app = false;
+                strncpy(cfg->ord[cfg->n_ord].name, tn, MENU_CFG_ORD_NAME_LEN - 1);
+                cfg->n_ord++;
+            }
+        } else if (strncmp(p, "HAPP ", 5) == 0 && cur_cat >= 0 &&
+                   cfg->n_ord < MENU_CFG_MAX_ORD) {
+            /* Hidden app: same as APP but flagged so the builder consumes the
+             * matching .m1app without adding it to the folder. */
+            char *fn = p + 5;
+            while (*fn == ' ' || *fn == '\t') fn++;
+            char *fe = fn;
+            while (*fe && *fe != ' ' && *fe != '\t' && *fe != '\r') fe++;
+            *fe = 0;
+            if (*fn) {
+                cfg->ord[cfg->n_ord].cat    = cur_cat;
+                cfg->ord[cfg->n_ord].is_app = true;
+                cfg->ord[cfg->n_ord].hidden = true;
+                strncpy(cfg->ord[cfg->n_ord].name, fn, MENU_CFG_ORD_NAME_LEN - 1);
+                cfg->n_ord++;
+            }
+        } else if (strncmp(p, "HITEM ", 6) == 0 && cur_cat >= 0 &&
+                   cfg->n_ord < MENU_CFG_MAX_ORD) {
+            /* Hidden built-in leaf: matched by title, consumed but not displayed. */
+            char *tn = p + 6;
+            while (*tn == ' ' || *tn == '\t') tn++;
+            char *te = tn + strlen(tn);
+            while (te > tn && (te[-1] == ' ' || te[-1] == '\t' || te[-1] == '\r')) te--;
+            *te = 0;
+            if (*tn) {
+                cfg->ord[cfg->n_ord].cat    = cur_cat;
+                cfg->ord[cfg->n_ord].is_app = false;
+                cfg->ord[cfg->n_ord].hidden = true;
+                strncpy(cfg->ord[cfg->n_ord].name, tn, MENU_CFG_ORD_NAME_LEN - 1);
+                cfg->n_ord++;
             }
         }
         *eol = saved;
         line = (eol < buf + br) ? eol + 1 : buf + br;
     }
     return cfg->n_order;
-}
-
-/* Custom-order comparator: A sorts AFTER B when this returns true. cfg-listed
- * apps (seq>=0) come first in listed order; unlisted apps follow, alpha by name. */
-static bool menu_app_order_gt(int seqA, const char *nA, int seqB, const char *nB)
-{
-    bool la = (seqA >= 0), lb = (seqB >= 0);
-    if (la && lb) return seqA > seqB;
-    if (la != lb) return !la;             /* listed is "smaller" */
-    return strcmp(nA, nB) > 0;
 }
 
 /* Build the runtime top-level from the menu.cfg order, injecting installed apps
@@ -850,73 +904,133 @@ const S_M1_Menu_t *menu_layout_build(void)
     static char a_path[MENU_MAX_APP_ENTRIES][MENU_APP_PATH_LEN];
     static char a_name[MENU_MAX_APP_ENTRIES][MENU_TITLE_LEN];
     static int  a_cat[MENU_MAX_APP_ENTRIES];
-    static int  a_seq[MENU_MAX_APP_ENTRIES];   /* cfg placement index, -1 = unlisted */
     for (int i = 0; i < app_count; i++) {
         char cat[16] = {0};
         m1_apps_get(i, a_path[i], MENU_APP_PATH_LEN, a_name[i], MENU_TITLE_LEN,
                     cat, sizeof(cat));
         const char *base = strrchr(a_path[i], '/');
         base = base ? base + 1 : a_path[i];
-        int ci = -1, seq = -1;
-        for (int pl = 0; pl < cfg.n_placed; pl++)
-            if (strcmp(cfg.placed[pl].file, base) == 0) {
-                ci = cfg.placed[pl].cat; seq = pl; break;
+        /* An explicit APP line in menu.cfg wins (matched by filename), else the
+         * manifest tag, else Apps. New apps with no line still land in their tag
+         * folder, so they're reachable immediately (self-healing). */
+        int ci = -1;
+        for (int o = 0; o < cfg.n_ord; o++)
+            if (cfg.ord[o].is_app && strcmp(cfg.ord[o].name, base) == 0) {
+                ci = cfg.ord[o].cat; break;
             }
         if (ci < 0) { int t = menu_cat_index(cat); ci = (t >= 0) ? t : apps_cat; }
         a_cat[i] = ci;
-        a_seq[i] = seq;
     }
 
     s_app_entry_used = 0;
     memset(&s_main_dyn, 0, sizeof(s_main_dyn));
     strncpy(s_main_dyn.title, "Main Menu", MENU_TITLE_LEN - 1);
 
+    /* Settings can never be hidden — it is the only way back to this editor, so
+     * hiding it would soft-lock customization. Force it visible regardless of cfg. */
+    const int settings_cat = menu_cat_index("settings");
+
     int items = 0;
     for (int i = 0; i < n && items < SUB_MENU_ITEMS_MAX; i++) {
         int ci = order[i];
+        if (cfg.hidden_cat[ci] && ci != settings_cat) continue;   /* hidden top-level menu */
         const menu_cat_t *cat = &k_cats[ci];
         S_M1_Menu_t   *folder = &s_appfolder[ci];
-        int used;
-
+        /* Capture the built-in leaf pointers so they can be reordered and
+         * interleaved with apps below. Other folder fields (init/deinit/xkey/
+         * icon/gui/reserved) come from the *cat->builtin copy. NULL entries are
+         * skipped defensively so a bad count can never be dereferenced. Static
+         * scratch: menu_layout_build runs only on the menu task, never nested. */
+        static S_M1_Menu_t *bi_ptr[SUB_MENU_ITEMS_MAX];
+        int n_bi = 0;
         if (cat->builtin) {
-            *folder = *cat->builtin;              /* copy entries + init fn + icon */
-            used = folder->num_submenu_items;
+            *folder = *cat->builtin;
+            int bn = folder->num_submenu_items;
+            if (bn > SUB_MENU_ITEMS_MAX) bn = SUB_MENU_ITEMS_MAX;
+            for (int b = 0; b < bn; b++)
+                if (folder->submenu[b]) bi_ptr[n_bi++] = folder->submenu[b];
         } else {
             memset(folder, 0, sizeof(*folder));
             strncpy(folder->title, cat->title, MENU_TITLE_LEN - 1);
             folder->icon_ptr = cat->icon;
-            used = 0;
         }
 
-        /* Collect this category's apps, then order them: custom (cfg APP order,
-         * unlisted appended A-Z), A-Z, or Z-A according to the saved layout. */
-        int idxs[MENU_MAX_APP_ENTRIES], na = 0;
+        /* This category's apps. */
+        static bool app_used[MENU_MAX_APP_ENTRIES];
+        static int  idxs[MENU_MAX_APP_ENTRIES];
+        int na = 0;
+        for (int a = 0; a < app_count; a++) app_used[a] = true;   /* not-in-this-cat = "used" */
         for (int a = 0; a < app_count; a++)
-            if (a_cat[a] == ci) idxs[na++] = a;
+            if (a_cat[a] == ci) { idxs[na++] = a; app_used[a] = false; }
 
+        static bool bi_used[SUB_MENU_ITEMS_MAX];
+        for (int b = 0; b < n_bi; b++) bi_used[b] = false;
         bool custom = cfg.sort_custom[ci];
-        for (int x = 1; x < na; x++) {           /* insertion sort */
-            int key = idxs[x], y = x - 1;
-            if (custom) {
-                while (y >= 0 && menu_app_order_gt(a_seq[idxs[y]], a_name[idxs[y]],
-                                                   a_seq[key], a_name[key]))
-                    { idxs[y + 1] = idxs[y]; y--; }
+        int  used = 0;
+
+        /* Pass 1: place cfg-listed items in menu.cfg order. Built-in ITEM order is
+         * ALWAYS honored, so A-Z/Z-A on a folder sorts only its apps and never
+         * disturbs a custom built-in arrangement. App APP order is honored only in
+         * custom mode; in alpha mode apps fall through to Pass 3 to be sorted. */
+        for (int o = 0; o < cfg.n_ord && used < SUB_MENU_ITEMS_MAX; o++) {
+            if (cfg.ord[o].cat != ci || cfg.ord[o].name[0] == '\0') continue;
+            if (cfg.ord[o].is_app) {
+                /* Alpha mode sorts non-hidden apps in Pass 3, but a HIDDEN app must
+                 * still be consumed here (in any sort mode) so Pass 3 doesn't re-add it. */
+                if (!custom && !cfg.ord[o].hidden) continue;
+                for (int a = 0; a < na; a++) {
+                    int ai = idxs[a];
+                    if (app_used[ai]) continue;
+                    const char *base = strrchr(a_path[ai], '/');
+                    base = base ? base + 1 : a_path[ai];
+                    if (strcmp(base, cfg.ord[o].name) == 0) {
+                        if (!cfg.ord[o].hidden) {
+                            S_M1_Menu_t *e = menu_make_app_entry(a_path[ai], a_name[ai]);
+                            if (e) folder->submenu[used++] = e;
+                        }
+                        app_used[ai] = true;   /* consumed either way (hidden -> dropped) */
+                        break;
+                    }
+                }
             } else {
-                while (y >= 0) {
-                    int cmp = strcmp(a_name[idxs[y]], a_name[key]);
-                    bool after = cfg.sort_alpha_desc[ci] ? (cmp < 0) : (cmp > 0);
-                    if (!after) break;
-                    idxs[y + 1] = idxs[y];
-                    y--;
+                for (int b = 0; b < n_bi; b++) {
+                    if (!bi_used[b] && bi_ptr[b] &&
+                        strcmp(bi_ptr[b]->title, cfg.ord[o].name) == 0) {
+                        if (!cfg.ord[o].hidden)
+                            folder->submenu[used++] = bi_ptr[b];
+                        bi_used[b] = true;     /* consumed either way (hidden -> dropped) */
+                        break;
+                    }
                 }
             }
-            idxs[y + 1] = key;
         }
-        for (int k = 0; k < na && used < SUB_MENU_ITEMS_MAX; k++) {
-            S_M1_Menu_t *e = menu_make_app_entry(a_path[idxs[k]], a_name[idxs[k]]);
+
+        /* Pass 2: built-ins not placed by cfg, in their original order (so a new
+         * firmware built-in appears even if the saved layout predates it). */
+        for (int b = 0; b < n_bi && used < SUB_MENU_ITEMS_MAX; b++)
+            if (!bi_used[b] && bi_ptr[b]) { folder->submenu[used++] = bi_ptr[b]; bi_used[b] = true; }
+
+        /* Pass 3: remaining apps, A-Z (or Z-A). */
+        static int rem[MENU_MAX_APP_ENTRIES];
+        int nr = 0;
+        for (int a = 0; a < na; a++)
+            if (!app_used[idxs[a]]) rem[nr++] = idxs[a];
+        for (int x = 1; x < nr; x++) {           /* insertion sort by name */
+            int key = rem[x], y = x - 1;
+            while (y >= 0) {
+                int cmp = strcmp(a_name[rem[y]], a_name[key]);
+                bool after = cfg.sort_alpha_desc[ci] ? (cmp < 0) : (cmp > 0);
+                if (!after) break;
+                rem[y + 1] = rem[y]; y--;
+            }
+            rem[y + 1] = key;
+        }
+        for (int k = 0; k < nr && used < SUB_MENU_ITEMS_MAX; k++) {
+            S_M1_Menu_t *e = menu_make_app_entry(a_path[rem[k]], a_name[rem[k]]);
             if (!e) break;
             folder->submenu[used++] = e;
         }
+
         folder->num_submenu_items = (uint8_t)used;
 
         /* Empty app-only folder -> show the "install an app" leaf message. */
@@ -929,20 +1043,88 @@ const S_M1_Menu_t *menu_layout_build(void)
     return &s_main_dyn;
 }
 
+/* Serialize the current top-level menu structure for qMonstatek Studio's menu
+ * editor: per category, the ordered items and whether each is a built-in leaf
+ * or an installed app. Lets the editor show built-ins alongside apps (with an
+ * app-vs-hardcoded indicator) and reorder them. Format:
+ *   u8 n_cats
+ *   per cat: u8 keylen, key[], u8 n_items,
+ *            per item: u8 type(0=builtin,1=app), u8 tlen, title[], u8 flen, file[]
+ * Returns bytes written. Walks the already-built s_main_dyn. */
+int m1_menu_dump(uint8_t *buf, int max)
+{
+    if (!buf || max < 1) return 0;
+
+    int pos = 0;
+    int ncat_pos = pos; buf[pos++] = 0;    /* n_cats placeholder */
+    uint8_t ncat = 0;
+
+    for (int i = 0; i < s_main_dyn.num_submenu_items; i++) {
+        const S_M1_Menu_t *folder = s_main_dyn.submenu[i];
+        if (!folder) continue;
+
+        const char *key = "";
+        for (int c = 0; c < MENU_CAT_COUNT; c++)
+            if (folder == &s_appfolder[c]) { key = k_cats[c].key; break; }
+        int klen = (int)strlen(key);
+
+        if (pos + 1 + klen + 1 > max) break;
+        buf[pos++] = (uint8_t)klen;
+        memcpy(&buf[pos], key, klen); pos += klen;
+        int nitem_pos = pos; buf[pos++] = 0;   /* n_items placeholder */
+        uint8_t nitem = 0;
+
+        for (int k = 0; k < folder->num_submenu_items; k++) {
+            const S_M1_Menu_t *leaf = folder->submenu[k];
+            if (!leaf) continue;
+            uint8_t type = 0;                   /* 0 = built-in */
+            const char *file = "";
+            for (int e = 0; e < s_app_entry_used; e++)
+                if (leaf == &s_app_entries[e].entry) {
+                    type = 1;                   /* 1 = app */
+                    const char *b = strrchr(s_app_entries[e].path, '/');
+                    file = b ? b + 1 : s_app_entries[e].path;
+                    break;
+                }
+            const char *title = leaf->title;
+            int tlen = (int)strlen(title);
+            int flen = (int)strlen(file);
+            if (pos + 1 + 1 + tlen + 1 + flen > max) break;
+            buf[pos++] = type;
+            buf[pos++] = (uint8_t)tlen; memcpy(&buf[pos], title, tlen); pos += tlen;
+            buf[pos++] = (uint8_t)flen; memcpy(&buf[pos], file,  flen); pos += flen;
+            nitem++;
+        }
+        buf[nitem_pos] = nitem;
+        ncat++;
+    }
+    buf[ncat_pos] = ncat;
+    return pos;
+}
+
 /* Set (from the RPC/file task) when 0:/apps changes — the menu handler rebuilds
  * the top level at its next main-menu idle tick, so a newly installed app is
  * usable without a reboot. */
 static volatile bool s_apps_dirty = false;
-void m1_menu_apps_changed(void) { s_apps_dirty = true; }
+void m1_menu_apps_changed(void)
+{
+    m1_app_manager_mark_dirty();
+    s_apps_dirty = true;
+}
 
 /* Re-scan apps + rebuild the top level in place. Call ONLY at the main menu
- * (level 0) so no submenu is mid-navigation; refresh the count + clamp selection. */
+ * (level 0) so no submenu is mid-navigation; refresh the count + reset selection.
+ * The caller redraws with MENU_UPDATE_INIT, which forces the GUI display window
+ * back to the top (active_row/top_row = 1). The logical selection MUST snap to
+ * item 0 to match, or the drawn highlight and menu_item_active desync by however
+ * far the user had scrolled — and OK then enters the WRONG top-level folder
+ * (e.g. "NFC" opens the Apps folder) until you back all the way out. */
 void menu_layout_rebuild(void)
 {
     menu_layout_build();                       /* refills s_main_dyn in place */
     menu_ctl.num_menu_items = s_main_dyn.num_submenu_items;
-    if (menu_ctl.menu_item_active >= menu_ctl.num_menu_items)
-        menu_ctl.menu_item_active = menu_ctl.num_menu_items ? (menu_ctl.num_menu_items - 1) : 0;
+    menu_ctl.menu_item_active = 0;             /* keep selection in sync with the INIT window reset */
+    menu_ctl.last_selected_items[0] = 0;
 }
 
 /*************** F U N C T I O N   I M P L E M E N T A T I O N ****************/
@@ -954,6 +1136,8 @@ void menu_layout_rebuild(void)
 /*============================================================================*/
 static void menu_main_init(void)
 {
+    /* Establish the shared app-index mutex before the first menu build. */
+    m1_app_manager_init();
     menu_ctl.menu_level = 0; // main menu
     menu_ctl.menu_item_active = 0; // first menu item
     menu_ctl.last_selected_items[0] = 0; // last selected item is the current active item
@@ -1027,7 +1211,11 @@ void menu_main_handler_task(void *param)
 			{
 				s_apps_dirty = false;
 				menu_layout_rebuild();
-				m1_gui_menu_update(pthis_submenu, menu_ctl.menu_item_active, MENU_UPDATE_RESET);
+				/* MENU_UPDATE_INIT (not _RESET): the rebuild is a top-level
+				 * main-menu redraw, so the GUI must re-enter top-level mode
+				 * (frame + icons + built-ins). _RESET renders it as a submenu
+				 * list, which drops the built-ins until you back out and re-enter. */
+				m1_gui_menu_update(pthis_submenu, menu_ctl.menu_item_active, MENU_UPDATE_INIT);
 			}
 			/* Queue-wait timeout (no button). Live-refresh the battery indicator
 			 * on the main menu so charge % / plugged state track without a keypress.
@@ -1266,9 +1454,27 @@ void menu_main_handler_task(void *param)
 								menu_update_stat = MENU_UPDATE_RESTORE;
 							} // else
 						} // if ( m1_device_stat.op_mode==M1_OPERATION_MODE_MENU_ON )
-						else
+						else if ( m1_device_stat.op_mode==M1_OPERATION_MODE_DISPLAY_ON )
 						{
-							; // Do something here if necessary. This case may never happen!
+							/* Power shortcut: BACK on the idle home screen jumps straight
+							 * to the Power menu (Battery Info / Reboot / Power Off) instead
+							 * of the buried Settings > Power path. Establish the main menu
+							 * at level 0 (so BACK from Power returns there), sync the GUI to
+							 * level 0, then push one level into the Power submenu. */
+							menu_main_init();                                       // level 0 = main menu
+							m1_gui_menu_update(pthis_submenu, 0, MENU_UPDATE_INIT);  // resync GUI to level 0
+							menu_ctl.menu_level = 1;
+							menu_ctl.last_selected_items[0] = 0;
+							menu_ctl.main_menu_ptr[1] = &menu_Settings_Power;
+							pthis_submenu = &menu_Settings_Power;
+							menu_ctl.this_func = pthis_submenu->sub_func;
+							menu_ctl.num_menu_items = pthis_submenu->num_submenu_items;
+							menu_ctl.menu_item_active = 0;
+							sel_item = 0;
+							if ( menu_ctl.this_func != NULL )
+								menu_ctl.this_func();                               // init the Power submenu
+							m1_device_stat.op_mode = M1_OPERATION_MODE_MENU_ON;
+							menu_update_stat = MENU_UPDATE_RESET;                   // final draw shows Power list
 						}
 	    				break;
 

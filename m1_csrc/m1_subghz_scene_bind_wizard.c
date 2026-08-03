@@ -48,7 +48,7 @@
 #include "m1_subghz_scene.h"
 #include "subghz_new_remote_gen.h"
 #include "subghz_submenu_model.h"
-#include "flipper_subghz.h"
+#include "subghz_file.h"
 
 /*============================================================================*/
 /* External linkage                                                           */
@@ -73,7 +73,7 @@ extern uint32_t HAL_GetTick(void);
  * from that many seconds.  Bar is informational — the user still presses
  * OK to advance.
  *
- * If @p tx_step is true, OK fires a TX via sub_ghz_replay_flipper_file()
+ * If @p tx_step is true, OK fires a TX via sub_ghz_replay_ff_file()
  * then auto-advances to the next step.
  */
 typedef struct {
@@ -336,14 +336,14 @@ static bool bw_generate_and_save(void)
     snprintf(bw_filepath, sizeof(bw_filepath),
              "0:/SUBGHZ/%s.sub", bw_params.file_base);
 
-    return flipper_subghz_save_key(bw_filepath,
+    return subghz_file_save_key(bw_filepath,
                bw_params.freq_hz, "FuriHalSubGhzPresetOok650Async",
                bw_params.proto_name,
                bw_params.bit_count, bw_params.key, (uint32_t)bw_params.te);
 }
 
 /** Push the async Transmitter scene to fire a TX step.  Replaces the legacy
- *  blocking sub_ghz_replay_flipper_file() call; the Transmitter scene owns
+ *  blocking sub_ghz_replay_ff_file() call; the Transmitter scene owns
  *  the radio lifecycle (init/exit + tx_completed_naturally flag) and pops
  *  back here on completion or BACK abort. */
 static void bw_push_tx(SubGhzApp *app)

@@ -104,7 +104,7 @@ typedef struct {
 #define M1_APP_API_VERSION      4
 
 /* Core (pre-category) manifest size — old apps have exactly this. Anything from
- * this size up is accepted; the category is zero-filled when absent. */
+ * this size up is accepted; appended fields are zero-filled when absent. */
 #define M1_APP_MANIFEST_CORE_SIZE  (4 + 2 + 2 + 32)   /* magic+api+stack+name = 40 */
 
 typedef struct __attribute__((packed)) {
@@ -113,6 +113,7 @@ typedef struct __attribute__((packed)) {
     uint16_t stack_size;     /* in 32-bit words */
     char     name[32];
     char     category[16];   /* default menu folder key; "" = Apps (added post-v3) */
+    char     version[16];    /* app release version; "" = legacy / unversioned */
 } m1_app_manifest_t;
 
 /* Loaded section info */

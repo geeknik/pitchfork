@@ -1,7 +1,7 @@
 /* See COPYING.txt for license details. */
 
 /*
- * flipper_ir.c
+ * ir_file.c
  *
  * Flipper Zero .ir file format parser for IR signals
  *
@@ -16,7 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
-#include "flipper_ir.h"
+#include "ir_file.h"
 
 /*************************** D E F I N E S ************************************/
 
@@ -29,7 +29,7 @@
  * @brief  Protocol mapping entry: Flipper name <-> IRMP protocol ID
  */
 typedef struct {
-	const char *flipper_name;
+	const char *ff_name;
 	uint8_t     irmp_id;
 } ir_proto_map_t;
 
@@ -119,16 +119,16 @@ static uint16_t ff_hex_bytes_to_uint16_le(const uint8_t *bytes, uint8_t count)
  * @param  name  Flipper protocol name string (e.g., "NEC", "Samsung32")
  * @return IRMP protocol ID, or IRMP_UNKNOWN_PROTOCOL if not found
  */
-uint8_t flipper_ir_proto_to_irmp(const char *name)
+uint8_t ir_file_proto_to_irmp(const char *name)
 {
 	const ir_proto_map_t *entry;
 
 	if (name == NULL)
 		return IRMP_UNKNOWN_PROTOCOL;
 
-	for (entry = ir_proto_table; entry->flipper_name != NULL; entry++)
+	for (entry = ir_proto_table; entry->ff_name != NULL; entry++)
 	{
-		if (ff_strcasecmp(name, entry->flipper_name) == 0)
+		if (ff_strcasecmp(name, entry->ff_name) == 0)
 			return entry->irmp_id;
 	}
 
@@ -141,14 +141,14 @@ uint8_t flipper_ir_proto_to_irmp(const char *name)
  * @param  irmp_id  IRMP protocol ID
  * @return Flipper protocol name, or "Unknown" if not found
  */
-const char *flipper_ir_irmp_to_proto(uint8_t irmp_id)
+const char *ir_file_irmp_to_proto(uint8_t irmp_id)
 {
 	const ir_proto_map_t *entry;
 
-	for (entry = ir_proto_table; entry->flipper_name != NULL; entry++)
+	for (entry = ir_proto_table; entry->ff_name != NULL; entry++)
 	{
 		if (entry->irmp_id == irmp_id)
-			return entry->flipper_name;
+			return entry->ff_name;
 	}
 
 	return "Unknown";
@@ -161,7 +161,7 @@ const char *flipper_ir_irmp_to_proto(uint8_t irmp_id)
  * @param  path  file path
  * @return true if file opened and header is valid
  */
-bool flipper_ir_open(flipper_file_t *ctx, const char *path)
+bool ir_file_open(ff_file_t *ctx, const char *path)
 {
 	if (!ff_open(ctx, path))
 		return false;
@@ -197,7 +197,7 @@ bool flipper_ir_open(flipper_file_t *ctx, const char *path)
  * @param  out  output signal structure
  * @return true if a signal was read, false at EOF or error
  */
-bool flipper_ir_read_signal(flipper_file_t *ctx, flipper_ir_signal_t *out)
+bool ir_file_read_signal(ff_file_t *ctx, ir_file_signal_t *out)
 {
 	bool got_name = false;
 	bool got_type = false;
@@ -207,7 +207,7 @@ bool flipper_ir_read_signal(flipper_file_t *ctx, flipper_ir_signal_t *out)
 	if (ctx == NULL || out == NULL)
 		return false;
 
-	memset(out, 0, sizeof(flipper_ir_signal_t));
+	memset(out, 0, sizeof(ir_file_signal_t));
 	out->valid = false;
 
 	/* Scan for the start of a signal block */
@@ -254,7 +254,7 @@ bool flipper_ir_read_signal(flipper_file_t *ctx, flipper_ir_signal_t *out)
 		{
 			if (ff_strcasecmp(ff_get_key(ctx), "protocol") == 0)
 			{
-				out->parsed.protocol = flipper_ir_proto_to_irmp(ff_get_value(ctx));
+				out->parsed.protocol = ir_file_proto_to_irmp(ff_get_value(ctx));
 			}
 			else if (ff_strcasecmp(ff_get_key(ctx), "address") == 0)
 			{
@@ -323,7 +323,7 @@ bool flipper_ir_read_signal(flipper_file_t *ctx, flipper_ir_signal_t *out)
 /**
  * @brief  Write the .ir file header
  */
-bool flipper_ir_write_header(flipper_file_t *ctx)
+bool ir_file_write_header(ff_file_t *ctx)
 {
 	if (ctx == NULL)
 		return false;
@@ -340,7 +340,7 @@ bool flipper_ir_write_header(flipper_file_t *ctx)
 /**
  * @brief  Write a single IR signal to a .ir file
  */
-bool flipper_ir_write_signal(flipper_file_t *ctx, const flipper_ir_signal_t *sig)
+bool ir_file_write_signal(ff_file_t *ctx, const ir_file_signal_t *sig)
 {
 	if (ctx == NULL || sig == NULL)
 		return false;
@@ -361,7 +361,7 @@ bool flipper_ir_write_signal(flipper_file_t *ctx, const flipper_ir_signal_t *sig
 		if (!ff_write_kv_str(ctx, "type", "parsed"))
 			return false;
 
-		if (!ff_write_kv_str(ctx, "protocol", flipper_ir_irmp_to_proto(sig->parsed.protocol)))
+		if (!ff_write_kv_str(ctx, "protocol", ir_file_irmp_to_proto(sig->parsed.protocol)))
 			return false;
 
 		/* Convert uint16 address to 4-byte little-endian hex */
@@ -422,12 +422,12 @@ bool flipper_ir_write_signal(flipper_file_t *ctx, const flipper_ir_signal_t *sig
  * @param  path  file path
  * @return signal count, or 0 on error
  */
-uint16_t flipper_ir_count_signals(const char *path)
+uint16_t ir_file_count_signals(const char *path)
 {
-	flipper_file_t ff;
+	ff_file_t ff;
 	uint16_t count = 0;
 
-	if (!flipper_ir_open(&ff, path))
+	if (!ir_file_open(&ff, path))
 		return 0;
 
 	while (ff_read_line(&ff))

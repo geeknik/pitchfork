@@ -567,7 +567,7 @@ uint8_t subghz_signal_settings_get_button(void);
 /**
  * @brief  Reassemble the loaded SignalSettings file's 64-bit Flipper key
  *         with @p new_button substituted in the button field, then save
- *         the file back via @ref flipper_subghz_save_key_with_manufacture,
+ *         the file back via @ref subghz_file_save_key_with_manufacture,
  *         preserving the original Manufacture: line.
  *
  * Used by @ref SubGhzSceneSetButton on OK when @ref
@@ -612,7 +612,7 @@ uint16_t subghz_signal_settings_get_counter(void);
  * @brief  Substitute @p new_counter into the loaded SignalSettings
  *         file's encrypted HOP word (preserving the lower 16 plaintext
  *         bits), reassemble the 64-bit Flipper key, and save the file
- *         back via @ref flipper_subghz_save_key_with_manufacture
+ *         back via @ref subghz_file_save_key_with_manufacture
  *         (Phase 9c-3).
  *
  * Used by @ref SubGhzSceneSetCounter on OK when @ref
@@ -633,7 +633,7 @@ bool subghz_signal_settings_apply_counter(uint16_t new_counter);
 /**
  * @brief  Flip the loaded SignalSettings file's CounterMode field
  *         between Increment and Static and persist via
- *         @ref flipper_subghz_save_key_full (Phase 9d-3).
+ *         @ref subghz_file_save_key_full (Phase 9d-3).
  *
  * Used by the SignalSettings scene when OK is pressed on the
  * CounterMode row.  Unlike the Button/Counter editors this is a binary

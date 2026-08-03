@@ -661,6 +661,41 @@ bool m1_esp_client_ble_spam_stop(void)
     return (n >= 1) && (resp[0] == M1ESP_OK);
 }
 
+/* BLE beacon emulator — iBeacon. Payload [0][uuid:16][major:2 LE][minor:2 LE][tx:i8]. */
+bool m1_esp_client_ble_beacon_ibeacon(const uint8_t uuid[16], uint16_t major,
+                                      uint16_t minor, signed char tx_power)
+{
+    uint8_t p[22];
+    p[0] = 0;                                 /* type: iBeacon */
+    memcpy(&p[1], uuid, 16);
+    p[17] = (uint8_t)(major & 0xFF); p[18] = (uint8_t)(major >> 8);
+    p[19] = (uint8_t)(minor & 0xFF); p[20] = (uint8_t)(minor >> 8);
+    p[21] = (uint8_t)tx_power;
+    uint8_t resp[1] = { 0 };
+    int n = esp_call(M1ESP_BLE_BEACON_START, p, sizeof(p), resp, sizeof(resp));
+    return (n >= 1) && (resp[0] == M1ESP_OK);
+}
+
+/* BLE beacon emulator — Eddystone-URL. Payload [1][url bytes]. */
+bool m1_esp_client_ble_beacon_eddystone(const char *url)
+{
+    if (!url) return false;
+    uint8_t p[80];
+    p[0] = 1;                                 /* type: Eddystone-URL */
+    uint16_t ul = (uint16_t)strnlen(url, sizeof(p) - 1);
+    memcpy(&p[1], url, ul);
+    uint8_t resp[1] = { 0 };
+    int n = esp_call(M1ESP_BLE_BEACON_START, p, (uint16_t)(1 + ul), resp, sizeof(resp));
+    return (n >= 1) && (resp[0] == M1ESP_OK);
+}
+
+bool m1_esp_client_ble_beacon_stop(void)
+{
+    uint8_t resp[1] = { 0 };
+    int n = esp_call(M1ESP_BLE_BEACON_STOP, NULL, 0, resp, sizeof(resp));
+    return (n >= 1) && (resp[0] == M1ESP_OK);
+}
+
 /* WiFi Hotspot (SoftAP): bring up a real AP the phone can join (no router).
  * Payload: [channel:1][ssid\0][pass\0]. */
 bool m1_esp_client_softap_start(const char *ssid, const char *pass, uint8_t channel)

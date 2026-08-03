@@ -19,7 +19,7 @@
 #include "stm32h5xx_hal.h"
 #include "main.h"
 #include "m1_ir_universal.h"
-#include "flipper_file.h"
+#include "ff_file.h"
 #include "m1_system.h"
 #include "m1_display.h"
 #include "m1_infrared.h"
@@ -30,7 +30,7 @@
 #include "m1_lcd.h"
 #include "m1_led_indicator.h"
 #include "irsnd.h"
-#include "flipper_ir.h"
+#include "ir_file.h"
 #include "ff.h"
 
 /*************************** D E F I N E S ************************************/
@@ -82,7 +82,7 @@ static char s_raw_tx_filepath[IR_UNIVERSAL_PATH_MAX_LEN];
 /* +1: the TX ISR reads pir_ota_data_tx_buffer[++counter], which touches
  * element [len] on the final period; len can equal IR_RAW_OTA_BUFFER_MAX. */
 static uint16_t s_raw_ota_buffer[IR_RAW_OTA_BUFFER_MAX + 1];
-static flipper_ir_signal_t s_raw_tx_signal;
+static ir_file_signal_t s_raw_tx_signal;
 
 /* Dashboard menu text (item 4 is dynamic: Remote/Normal Mode) */
 static const char *s_dashboard_items[DASHBOARD_ITEM_COUNT] = {
@@ -114,8 +114,8 @@ static bool is_ir_file(const char *fname);
 static void path_append(char *base, const char *item);
 static void path_go_up(char *path);
 static uint16_t parse_ir_file(const char *filepath);
-static bool parse_ir_signal_block(flipper_file_t *ff, ir_universal_cmd_t *cmd);
-static uint8_t map_flipper_protocol(const char *name);
+static bool parse_ir_signal_block(ff_file_t *ff, ir_universal_cmd_t *cmd);
+static uint8_t map_ff_protocol(const char *name);
 
 /*************** F U N C T I O N   I M P L E M E N T A T I O N ****************/
 
@@ -170,6 +170,47 @@ void ir_universal_run(void)
 {
 	dashboard_screen();
 } // void ir_universal_run(void)
+
+
+
+/*============================================================================*/
+/*
+ * Flattened section entry points. The Infrared menu lists these directly
+ * (Remotes / Learned / Favorites / Recent) instead of routing through the old
+ * dashboard screen, which was one redundant level of nesting. Each wraps the
+ * same favorites+recent load/save (init/deinit) the dashboard did around a
+ * single section.
+ */
+/*============================================================================*/
+
+/* Browse a directory tree (IRDB root or Learned), forcing Normal orientation
+ * for the file browser and restoring it after — same dance as dashboard case 0/1. */
+static void ir_open_browse(const char *root)
+{
+	uint8_t saved_orient = m1_screen_orientation;
+	if (saved_orient != M1_ORIENT_NORMAL)
+	{
+		m1_screen_orientation = M1_ORIENT_NORMAL;
+		m1_southpaw_mode = 0;
+		u8g2_SetDisplayRotation(&m1_u8g2, U8G2_R2);
+	}
+	strncpy(s_current_path, root, IR_UNIVERSAL_PATH_MAX_LEN - 1);
+	s_current_path[IR_UNIVERSAL_PATH_MAX_LEN - 1] = '\0';
+	browse_directory(s_current_path);
+	if (saved_orient != M1_ORIENT_NORMAL)
+	{
+		m1_screen_orientation = saved_orient;
+		m1_southpaw_mode = (saved_orient == M1_ORIENT_SOUTHPAW) ? 1 : 0;
+		u8g2_SetDisplayRotation(&m1_u8g2,
+			saved_orient == M1_ORIENT_REMOTE   ? U8G2_R1 :
+			saved_orient == M1_ORIENT_SOUTHPAW ? U8G2_R0 : U8G2_R2);
+	}
+}
+
+void ir_open_remotes(void)   { ir_universal_init(); ir_open_browse(IR_UNIVERSAL_IRDB_ROOT); ir_universal_deinit(); }
+void ir_open_learned(void)   { ir_universal_init(); ir_open_browse(IR_LEARNED_DIR);         ir_universal_deinit(); }
+void ir_open_favorites(void) { ir_universal_init(); show_favorites_screen();                ir_universal_deinit(); }
+void ir_open_recent(void)    { ir_universal_init(); show_recent_screen();                   ir_universal_deinit(); }
 
 
 
@@ -791,10 +832,10 @@ static void browse_directory(const char *path)
  * Returns 0 if not found.
  */
 /*============================================================================*/
-static uint8_t map_flipper_protocol(const char *name)
+static uint8_t map_ff_protocol(const char *name)
 {
 	/* Common Flipper protocol names mapped to IRMP IDs.
-	 * Must stay in sync with flipper_ir.c ir_proto_table[]. */
+	 * Must stay in sync with ir_file.c ir_proto_table[]. */
 	if (strcmp(name, "NEC") == 0 || strcmp(name, "NECext") == 0)
 		return IRMP_NEC_PROTOCOL;
 	if (strcmp(name, "Samsung48") == 0)
@@ -832,18 +873,18 @@ static uint8_t map_flipper_protocol(const char *name)
 		return IRMP_RCMM32_PROTOCOL;
 
 	return 0; /* Unknown protocol */
-} // static uint8_t map_flipper_protocol(...)
+} // static uint8_t map_ff_protocol(...)
 
 
 
 /*============================================================================*/
 /*
  * Parse a single IR signal block from a Flipper .ir file.
- * The flipper_file cursor should be positioned at the start of a signal block.
+ * The ff_file cursor should be positioned at the start of a signal block.
  * Returns true if a valid signal was parsed.
  */
 /*============================================================================*/
-static bool parse_ir_signal_block(flipper_file_t *ff, ir_universal_cmd_t *cmd)
+static bool parse_ir_signal_block(ff_file_t *ff, ir_universal_cmd_t *cmd)
 {
 	bool got_name = false;
 	bool got_type = false;
@@ -883,7 +924,7 @@ static bool parse_ir_signal_block(flipper_file_t *ff, ir_universal_cmd_t *cmd)
 		}
 		else if (strcmp(ff_get_key(ff), "protocol") == 0 && is_parsed)
 		{
-			cmd->protocol = map_flipper_protocol(ff_get_value(ff));
+			cmd->protocol = map_ff_protocol(ff_get_value(ff));
 		}
 		else if (strcmp(ff_get_key(ff), "address") == 0 && is_parsed)
 		{
@@ -959,7 +1000,7 @@ static bool parse_ir_signal_block(flipper_file_t *ff, ir_universal_cmd_t *cmd)
 /*============================================================================*/
 static uint16_t parse_ir_file(const char *filepath)
 {
-	flipper_file_t ff;
+	ff_file_t ff;
 	uint16_t count = 0;
 
 	if (!ff_open(&ff, filepath))
@@ -1201,7 +1242,7 @@ static void transmit_command(const ir_universal_cmd_t *cmd)
 /*============================================================================*/
 static void transmit_raw_command(const ir_universal_cmd_t *cmd)
 {
-	flipper_file_t ff;
+	ff_file_t ff;
 	uint16_t i;
 	uint16_t ota_len;
 	uint32_t duration;
@@ -1212,7 +1253,7 @@ static void transmit_raw_command(const ir_universal_cmd_t *cmd)
 		return;
 
 	/* Re-open the .ir file to read raw timing data */
-	if (!flipper_ir_open(&ff, s_raw_tx_filepath))
+	if (!ir_file_open(&ff, s_raw_tx_filepath))
 	{
 		u8g2_FirstPage(&m1_u8g2);
 		u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
@@ -1224,7 +1265,7 @@ static void transmit_raw_command(const ir_universal_cmd_t *cmd)
 	}
 
 	/* Find the signal by name */
-	while (flipper_ir_read_signal(&ff, &s_raw_tx_signal))
+	while (ir_file_read_signal(&ff, &s_raw_tx_signal))
 	{
 		if (strcmp(s_raw_tx_signal.name, cmd->name) == 0 &&
 		    s_raw_tx_signal.type == FLIPPER_IR_SIGNAL_RAW)

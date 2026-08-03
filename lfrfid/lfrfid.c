@@ -115,6 +115,19 @@ static void lfrfid_read_timeout_cb(TimerHandle_t xTimer)
 }
 
 
+/* Bounded post to main_q_hdl. The built-in menu task drains main_q_hdl, but during
+ * an app that task is blocked in apps_run and never drains it — an unbounded
+ * portMAX_DELAY send here would wedge the RFID engine forever once the queue fills.
+ * App reads poll the tag result directly, so a dropped UI event is harmless; the
+ * built-in path drains within 100 ms so it never actually drops. */
+static void lfrfid_post_main_bounded(S_M1_Q_Event_Type_t evt)
+{
+    S_M1_Main_Q_t q;
+    q.q_evt_type = evt;
+    (void)xQueueSend(main_q_hdl, &q, pdMS_TO_TICKS(100));
+}
+
+
 /*============================================================================*/
 /**
   * @brief
@@ -294,6 +307,15 @@ void lfrfid_Init(void)
 /*============================================================================*/
 void lfrfid_DeInit(void)
 {
+	/* Delete the timers FIRST — before the queue/tasks. Both timer callbacks post
+	 * into lfrfid_q_hdl; the carrier-switch timer is AUTO-RELOAD. Deleting the queue
+	 * first (as this used to) left a window where a timer fire posted into the
+	 * freed/NULL queue via an unconditional portMAX_DELAY send -> HardFault reboot.
+	 * xTimerDelete() blocks until the daemon processes it, so once both are gone no
+	 * callback can run again; only then is it safe to delete the queue. */
+	lfrfid_read_timeout_timer_delete();
+	lfrfid_carrier_switch_timer_delete();
+
 	if(lfrfid_task_hdl)
 	{
 		vTaskDelete(lfrfid_task_hdl);
@@ -311,9 +333,6 @@ void lfrfid_DeInit(void)
 		vTaskDelete(lfrfid_rx_task_hdl);
 		lfrfid_rx_task_hdl = NULL;
 	}
-
-	lfrfid_read_timeout_timer_delete();
-	lfrfid_carrier_switch_timer_delete();
 
 	lfrfid_stream_deinit();
 
@@ -518,7 +537,7 @@ void lfrfidThread(void *param)
 
 				task_suspend_safe(lfrfid_rx_task_hdl);
 
-				m1_app_send_q_message(main_q_hdl, Q_EVENT_LFRFID_TAG_DETECTED);
+				lfrfid_post_main_bounded(Q_EVENT_LFRFID_TAG_DETECTED);
 			} // else if ( q_item.q_evt_type==Q_EVENT_LFRFID_TAG_DETECTED )
 			else if(q_item.q_evt_type==Q_EVENT_UI_LFRFID_START_READ)
 			{
@@ -576,20 +595,22 @@ void lfrfidThread(void *param)
 			}
 			else if(q_item.q_evt_type==Q_EVENT_UI_LFRFID_STOP)
 			{
-				if(rfid_rxtx_is_taking_this_irq)
-				{
+				/* Always tear the read down — do NOT gate on
+				 * rfid_rxtx_is_taking_this_irq, which is never set for a read. A
+				 * no-tag read (timeout or cancel) otherwise left lfrfid_lock=1 and
+				 * the auto-reload carrier timer running: the next START_READ was
+				 * refused (lock stuck) and DeInit could fire the timer into the
+				 * freed queue. Idempotent when TAG_DETECTED already cleaned up. */
+				lfrfid_lock = 0;
+				lfrfid_state = LFRFID_STATE_IDLE;
 
-					lfrfid_lock = 0;
-					lfrfid_state = LFRFID_STATE_IDLE;
+				lfrfid_read_timeout_stop();
+				lfrfid_carrier_switch_timer_stop();
+				lfrfid_read_hw_deinit();
+				osDelay(10);
 
-					lfrfid_read_timeout_stop();
-					lfrfid_carrier_switch_timer_stop();
-					lfrfid_read_hw_deinit();
-					osDelay(10);
-
-					task_suspend_safe(lfrfid_rx_task_hdl);
-				}
-
+				task_suspend_safe(lfrfid_rx_task_hdl);
+				rfid_rxtx_is_taking_this_irq = 0;
 			}
 			else if(q_item.q_evt_type==Q_EVENT_UI_LFRFID_EMULATE)
 			{
@@ -638,12 +659,12 @@ void lfrfidThread(void *param)
 			{
 #endif
 				lfrfid_lock = 0;
-				m1_app_send_q_message(main_q_hdl, Q_EVENT_UI_LFRFID_WRITE_DONE);
+				lfrfid_post_main_bounded(Q_EVENT_UI_LFRFID_WRITE_DONE);
 			}
 			else if(q_item.q_evt_type==Q_EVENT_UI_LFRFID_READ_TIMEOUT)
 			{
 				//lfrfid_lock = 0;
-				m1_app_send_q_message(main_q_hdl, Q_EVENT_UI_LFRFID_READ_TIMEOUT);
+				lfrfid_post_main_bounded(Q_EVENT_UI_LFRFID_READ_TIMEOUT);
 			}
 			else if(q_item.q_evt_type==Q_EVENT_UI_LFRFID_WRITE_STOP)
 			{

@@ -68,8 +68,8 @@ static bool    browse_done = false; /**< File selected, in playback view */
 /* Playlist parser                                                            */
 /*============================================================================*/
 
-/* remap_flipper_path() has been extracted to subghz_playlist_parser.c/h
- * as subghz_remap_flipper_path().  Included via subghz_playlist_parser.h. */
+/* remap_ff_path() has been extracted to subghz_playlist_parser.c/h
+ * as subghz_remap_ff_path().  Included via subghz_playlist_parser.h. */
 
 /**
  * @brief  Parse a playlist .txt file and populate app->playlist_files[].
@@ -139,7 +139,7 @@ static bool playlist_parse(SubGhzApp *app, const char *path)
             continue;
 
         /* Remap Flipper paths and store */
-        subghz_remap_flipper_path(p,
+        subghz_remap_ff_path(p,
                            app->playlist_files[app->playlist_count],
                            PLAYLIST_PATH_MAX);
 

@@ -25,7 +25,7 @@
  *   cmd_byte bit[5]      — 1 = OFF (when bit 7 is 0)
  *   cmd_byte bits[6,4,3] — unit code within the group
  *
- * Reference: https://github.com/evilpete/flipper_toolbox/raw/refs/heads/main/subghz/firecracker_spec.txt
+ * Reference: https://github.com/evilpete/ff_toolbox/raw/refs/heads/main/subghz/firecracker_spec.txt
  */
 
 #include "m1_sub_ghz_decenc.h"

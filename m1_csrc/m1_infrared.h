@@ -93,6 +93,16 @@ void menu_infrared_exit(void);
 void infrared_universal_remotes(void);
 void infrared_learn_new_remote(void);
 void infrared_saved_remotes(void);
+void ir_toggle_remote_mode(void);   /* Remote Mode menu leaf: rotate for handheld use */
+
+/* SDK primitive API (app-callable; plain types). */
+bool        m1_ir_send(uint8_t protocol, uint16_t address, uint16_t command, uint8_t repeat);
+bool        m1_ir_send_raw(uint32_t carrier_hz, const int32_t *samples, uint16_t count);
+bool        m1_ir_receive(uint8_t *protocol, uint16_t *address, uint16_t *command, uint32_t timeout_ms);
+void        m1_ir_carrier_on(uint32_t freq);
+void        m1_ir_carrier_off(void);
+const char *m1_ir_protocol_name(uint8_t irmp_id);
+uint8_t     m1_ir_protocol_count(void);
 void infrared_encode_sys_init(void);
 void infrared_encode_sys_deinit(void);
 S_M1_IR_Tx_States infrared_transmit(uint8_t init);

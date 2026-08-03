@@ -40,7 +40,7 @@
 #include "m1_scene.h"
 #include "m1_submenu.h"
 #include "m1_subghz_scene.h"
-#include "flipper_subghz.h"
+#include "subghz_file.h"
 #include "subghz_create_proto.h"
 #include "subghz_keeloq_create.h"
 #include "subghz_keeloq_mfkeys.h"
@@ -85,7 +85,7 @@ static void load_entries(void)
      * by scripts/gen_keeloq_mfkeys_builtin.py when the KEELOQ_KEY_VAULT secret
      * is set) are visible in the picker even when the user has never opened
      * a saved KeeLoq file yet.  Mirrors the lazy-load guard in
-     * m1_sub_ghz.c::sub_ghz_replay_flipper_file(). */
+     * m1_sub_ghz.c::sub_ghz_replay_ff_file(). */
     if (keeloq_mfkeys_count() == 0)
         keeloq_mfkeys_load();
 
@@ -163,7 +163,7 @@ static bool push_transmitter_with_assembled_key(SubGhzApp *app)
     /* Write the temp .sub with Manufacture: set so the replay path can
      * decrypt → increment → re-encrypt via the existing KeeLoq
      * counter-mode encoder. */
-    if (!flipper_subghz_save_key_with_manufacture(
+    if (!subghz_file_save_key_with_manufacture(
             SETMFKEY_TMP_PATH,
             spec->freq_hz,
             "FuriHalSubGhzPresetOok650Async",

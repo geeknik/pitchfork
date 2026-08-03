@@ -1,7 +1,7 @@
 /* See COPYING.txt for license details. */
 
 /*
- * flipper_nfc.c
+ * nfc_file.c
  *
  * Flipper Zero .nfc file format parser
  *
@@ -16,7 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
-#include "flipper_nfc.h"
+#include "nfc_fmt.h"
 
 /*************************** D E F I N E S ************************************/
 
@@ -29,8 +29,8 @@
  * @brief  NFC type mapping entry
  */
 typedef struct {
-	const char          *flipper_name;
-	flipper_nfc_type_t   type;
+	const char          *ff_name;
+	nfc_fmt_type_t   type;
 } nfc_type_map_t;
 
 /***************************** V A R I A B L E S ******************************/
@@ -81,18 +81,18 @@ static int nfc_strcasecmp(const char *a, const char *b)
 /**
  * @brief  Map Flipper NFC device type string to enum
  * @param  type_str  device type string from .nfc file
- * @return flipper_nfc_type_t enum value
+ * @return nfc_fmt_type_t enum value
  */
-flipper_nfc_type_t flipper_nfc_parse_type(const char *type_str)
+nfc_fmt_type_t nfc_fmt_parse_type(const char *type_str)
 {
 	const nfc_type_map_t *entry;
 
 	if (type_str == NULL)
 		return FLIPPER_NFC_TYPE_UNKNOWN;
 
-	for (entry = nfc_type_table; entry->flipper_name != NULL; entry++)
+	for (entry = nfc_type_table; entry->ff_name != NULL; entry++)
 	{
-		if (nfc_strcasecmp(type_str, entry->flipper_name) == 0)
+		if (nfc_strcasecmp(type_str, entry->ff_name) == 0)
 			return entry->type;
 	}
 
@@ -115,14 +115,14 @@ flipper_nfc_type_t flipper_nfc_parse_type(const char *type_str)
  * @param  out   output card structure
  * @return true on success
  */
-bool flipper_nfc_load(const char *path, flipper_nfc_card_t *out)
+bool nfc_fmt_load(const char *path, nfc_fmt_card_t *out)
 {
-	flipper_file_t ff;
+	ff_file_t ff;
 
 	if (path == NULL || out == NULL)
 		return false;
 
-	memset(out, 0, sizeof(flipper_nfc_card_t));
+	memset(out, 0, sizeof(nfc_fmt_card_t));
 	out->type = FLIPPER_NFC_TYPE_UNKNOWN;
 
 	if (!ff_open(&ff, path))
@@ -148,7 +148,7 @@ bool flipper_nfc_load(const char *path, flipper_nfc_card_t *out)
 		{
 			strncpy(out->device_type, ff_get_value(&ff), sizeof(out->device_type) - 1);
 			out->device_type[sizeof(out->device_type) - 1] = '\0';
-			out->type = flipper_nfc_parse_type(ff_get_value(&ff));
+			out->type = nfc_fmt_parse_type(ff_get_value(&ff));
 		}
 		else if (nfc_strcasecmp(ff_get_key(&ff), "UID") == 0)
 		{
@@ -196,12 +196,12 @@ bool flipper_nfc_load(const char *path, flipper_nfc_card_t *out)
  * @param  unit_size      output: 4 for pages, 16 for blocks
  * @return Number of units (pages or blocks) successfully parsed
  */
-uint16_t flipper_nfc_load_dump(const char *path,
+uint16_t nfc_fmt_load_dump(const char *path,
                                uint8_t *dump_buf, uint16_t dump_buf_size,
                                uint8_t *valid_bits,
                                uint16_t *unit_size)
 {
-	flipper_file_t ff;
+	ff_file_t ff;
 	uint16_t count = 0;
 	uint16_t usize = 0;
 
@@ -273,9 +273,9 @@ uint16_t flipper_nfc_load_dump(const char *path,
  * @param  card  card structure to save
  * @return true on success
  */
-bool flipper_nfc_save(const char *path, const flipper_nfc_card_t *card)
+bool nfc_fmt_save(const char *path, const nfc_fmt_card_t *card)
 {
-	flipper_file_t ff;
+	ff_file_t ff;
 	bool result = true;
 	uint8_t sak_byte;
 

@@ -46,14 +46,19 @@
 #include "m1_power_ctl.h"
 #include "m1_sdcard.h"
 #include "m1_infrared.h"
-#include "flipper_file.h"
-#include "flipper_ir.h"
-#include "flipper_nfc.h"
-#include "flipper_rfid.h"
-#include "flipper_subghz.h"
+#include "m1_ir_remote.h"
+#include "ff_file.h"
+#include "ir_file.h"
+#include "nfc_fmt.h"
+#include "rfid_file.h"
+#include "subghz_file.h"
+#include "m1_sub_ghz.h"        /* Sub-GHz primitive verbs (analyzers + TX) */
 #include "m1_wifi.h"
 #include "m1_esp_client.h"   /* expose the ESP32-C6 WiFi/BLE/ESP-NOW API to apps */
 #include "m1_field_detect.h"
+#include "m1_nfc.h"
+#include "m1_rfid_api.h"       /* LF-RFID primitive verbs */
+#include "lfrfid_file.h"       /* lfrfid_profile_load/save, lfrfid_get_protocol_by_name */
 #include "m1_usb_cdc_msc.h"
 #include "m1_badusb.h"
 
@@ -70,7 +75,7 @@ extern bool get_esp32_main_init_status(void);
 /* Maximum number of exported API symbols. Headroom above the ~235 currently
  * populated; the grouped-dispatch umbrella calls keep future domain expansion
  * from needing one symbol per operation, so this need not grow much further. */
-#define API_MAX_SYMBOLS  384
+#define API_MAX_SYMBOLS  1024   /* headroom for the full primitive surface (every subsystem) */
 
 /********************* T Y P E S *********************************************/
 
@@ -440,9 +445,22 @@ void m1_app_api_init(void)
         { "m1_ow_read_byte",  (void *)m1_ow_read_byte },
         { "m1_ow_deinit",     (void *)m1_ow_deinit },
 
+        /* ===== Infrared (TX / RX / learn) ===== */
+        { "m1_ir_send",            (void *)m1_ir_send },
+        { "m1_ir_send_raw",        (void *)m1_ir_send_raw },
+        { "m1_ir_receive",         (void *)m1_ir_receive },
+        { "m1_ir_carrier_on",      (void *)m1_ir_carrier_on },
+        { "m1_ir_carrier_off",     (void *)m1_ir_carrier_off },
+        { "m1_ir_protocol_name",   (void *)m1_ir_protocol_name },
+        { "m1_ir_protocol_count",  (void *)m1_ir_protocol_count },
+        /* Multi-button IR remote (load/create on-device, .ir manifest) */
+        { "ir_remote",             (void *)ir_remote },
+
         /* ===== I2C ===== */
         { "m1_i2c_hal_trans_req",  (void *)m1_i2c_hal_trans_req },
         { "m1_i2c_hal_get_error",  (void *)m1_i2c_hal_get_error },
+        /* Bit-bang scan of the GPIO-header I2C bus (SCL=pin6, SDA=pin7) */
+        { "m1_i2c_scan",           (void *)m1_i2c_scan },
 
         /* ===== SPI ===== */
         { "m1_spi_hal_trans_req",  (void *)m1_spi_hal_trans_req },
@@ -511,27 +529,27 @@ void m1_app_api_init(void)
         { "ff_parse_int32_array", (void *)ff_parse_int32_array },
 
         /* ===== Flipper IR file format ===== */
-        { "flipper_ir_open",          (void *)flipper_ir_open },
-        { "flipper_ir_read_signal",   (void *)flipper_ir_read_signal },
-        { "flipper_ir_write_header",  (void *)flipper_ir_write_header },
-        { "flipper_ir_write_signal",  (void *)flipper_ir_write_signal },
-        { "flipper_ir_count_signals", (void *)flipper_ir_count_signals },
-        { "flipper_ir_proto_to_irmp", (void *)flipper_ir_proto_to_irmp },
-        { "flipper_ir_irmp_to_proto", (void *)flipper_ir_irmp_to_proto },
+        { "ir_file_open",          (void *)ir_file_open },
+        { "ir_file_read_signal",   (void *)ir_file_read_signal },
+        { "ir_file_write_header",  (void *)ir_file_write_header },
+        { "ir_file_write_signal",  (void *)ir_file_write_signal },
+        { "ir_file_count_signals", (void *)ir_file_count_signals },
+        { "ir_file_proto_to_irmp", (void *)ir_file_proto_to_irmp },
+        { "ir_file_irmp_to_proto", (void *)ir_file_irmp_to_proto },
 
         /* ===== Flipper NFC file format ===== */
-        { "flipper_nfc_load",       (void *)flipper_nfc_load },
-        { "flipper_nfc_save",       (void *)flipper_nfc_save },
-        { "flipper_nfc_parse_type", (void *)flipper_nfc_parse_type },
+        { "nfc_fmt_load",       (void *)nfc_fmt_load },
+        { "nfc_fmt_save",       (void *)nfc_fmt_save },
+        { "nfc_fmt_parse_type", (void *)nfc_fmt_parse_type },
 
         /* ===== Flipper RFID file format ===== */
-        { "flipper_rfid_load",           (void *)flipper_rfid_load },
-        { "flipper_rfid_save",           (void *)flipper_rfid_save },
-        { "flipper_rfid_parse_protocol", (void *)flipper_rfid_parse_protocol },
+        { "rfid_file_load",           (void *)rfid_file_load },
+        { "rfid_file_save",           (void *)rfid_file_save },
+        { "rfid_file_parse_protocol", (void *)rfid_file_parse_protocol },
 
         /* ===== Flipper Sub-GHz file format ===== */
-        { "flipper_subghz_load", (void *)flipper_subghz_load },
-        { "flipper_subghz_save", (void *)flipper_subghz_save },
+        { "subghz_file_load", (void *)subghz_file_load },
+        { "subghz_file_save", (void *)subghz_file_save },
 
         /* ===== Crypto (AES-256-CBC) ===== */
         { "m1_crypto_derive_key",  (void *)m1_crypto_derive_key },
@@ -577,6 +595,58 @@ void m1_app_api_init(void)
         { "m1_field_detect_rfid_raw", (void *)m1_field_detect_rfid_raw },
         { "m1_field_detect_nfc_raw",  (void *)m1_field_detect_nfc_raw },
         { "m1_field_detect_nfc_opctl",(void *)m1_field_detect_nfc_opctl },
+        /* NFC primitive API (composable read/transceive/emulate) */
+        { "m1_nfc_field_on",          (void *)m1_nfc_field_on },
+        { "m1_nfc_poll",              (void *)m1_nfc_poll },
+        { "m1_nfc_transceive",        (void *)m1_nfc_transceive },
+        { "m1_nfc_ntag_read_page",    (void *)m1_nfc_ntag_read_page },
+        { "m1_nfc_ntag_pwd_auth",     (void *)m1_nfc_ntag_pwd_auth },
+        { "m1_nfc_ntag_write_page",   (void *)m1_nfc_ntag_write_page },
+        { "m1_nfc_mifare_read_block", (void *)m1_nfc_mifare_read_block },
+        { "m1_nfc_emulate_uid",       (void *)m1_nfc_emulate_uid },
+        { "m1_nfc_emulate_ntag",      (void *)m1_nfc_emulate_ntag },
+        { "m1_nfc_emulate_uid_update",(void *)m1_nfc_emulate_uid_update },
+        { "m1_nfc_emulate_stop",      (void *)m1_nfc_emulate_stop },
+
+        /* ===== LF-RFID (125 kHz): read / clone / write / erase / emulate ===== */
+        { "m1_rfid_start",             (void *)m1_rfid_start },
+        { "m1_rfid_stop",              (void *)m1_rfid_stop },
+        { "m1_rfid_read",              (void *)m1_rfid_read },
+        { "m1_rfid_write_t5577",       (void *)m1_rfid_write_t5577 },
+        { "m1_rfid_write_t5577_blocks",(void *)m1_rfid_write_t5577_blocks },
+        { "m1_rfid_emulate_start",     (void *)m1_rfid_emulate_start },
+        { "m1_rfid_emulate_stop",      (void *)m1_rfid_emulate_stop },
+        /* LF-RFID engine helpers (already in firmware) */
+        { "protocol_get_name",         (void *)protocol_get_name },
+        { "protocol_get_manufacturer", (void *)protocol_get_manufacturer },
+        { "protocol_get_data_size",    (void *)protocol_get_data_size },
+        { "protocol_get_data",         (void *)protocol_get_data },
+        { "protocol_render_data",      (void *)protocol_render_data },
+        { "lfrfid_GetTagInfo",         (void *)lfrfid_GetTagInfo },
+        { "lfrfid_tag_info_init",      (void *)lfrfid_tag_info_init },
+        { "lfrfid_get_protocol_by_name",(void *)lfrfid_get_protocol_by_name },
+        { "lfrfid_profile_load",       (void *)lfrfid_profile_load },
+        { "lfrfid_profile_save",       (void *)lfrfid_profile_save },
+        { "bytes_to_u32_array",        (void *)bytes_to_u32_array },
+        { "lfrfid_write_verify",       (void *)lfrfid_write_verify },
+
+        /* ===== Sub-GHz (SI4463): self-contained analyzers + TX ===== *
+         * Each analyzer self-inits the radio (menu_sub_ghz_init) and runs its own
+         * BACK-to-exit loop, so an app just calls it. TX plays a .sub/.sgh file via
+         * the standalone blocking replay wrappers (own event loop, no scene needed). */
+        { "sub_ghz_rssi_meter",         (void *)sub_ghz_rssi_meter },
+        { "sub_ghz_spectrum_analyzer",  (void *)sub_ghz_spectrum_analyzer },
+        { "sub_ghz_freq_scanner",       (void *)sub_ghz_freq_scanner },
+        { "sub_ghz_frequency_reader",   (void *)sub_ghz_frequency_reader },
+        { "sub_ghz_weather_station",    (void *)sub_ghz_weather_station },
+        { "sub_ghz_brute_force",        (void *)sub_ghz_brute_force },
+        { "sub_ghz_replay_ff_file",     (void *)sub_ghz_replay_ff_file },
+        { "sub_ghz_replay_datafile",    (void *)sub_ghz_replay_datafile },
+        /* Scene-based Sub-GHz apps: each launches the scene engine at one scene. */
+        { "sub_ghz_proto_pirate_entry", (void *)sub_ghz_proto_pirate_entry },
+        { "sub_ghz_playlist_entry",     (void *)sub_ghz_playlist_entry },
+        { "sub_ghz_bind_entry",         (void *)sub_ghz_bind_entry },
+        { "sub_ghz_remote_entry",       (void *)sub_ghz_remote_entry },
 
         /* ===== USB HID (BadUSB) ===== */
         { "m1_usb_switch_to_hid",    (void *)m1_usb_switch_to_hid },
@@ -628,6 +698,11 @@ void m1_app_api_init(void)
         { "m1_esp_client_ble_hid_deinit",  (void *)m1_esp_client_ble_hid_deinit },
         { "m1_esp_client_ble_hid_key",     (void *)m1_esp_client_ble_hid_key },
         { "m1_esp_client_ble_hid_status",  (void *)m1_esp_client_ble_hid_status },
+        { "m1_esp_client_ble_spam_start",  (void *)m1_esp_client_ble_spam_start },
+        { "m1_esp_client_ble_spam_stop",   (void *)m1_esp_client_ble_spam_stop },
+        { "m1_esp_client_ble_beacon_ibeacon",   (void *)m1_esp_client_ble_beacon_ibeacon },
+        { "m1_esp_client_ble_beacon_eddystone", (void *)m1_esp_client_ble_beacon_eddystone },
+        { "m1_esp_client_ble_beacon_stop",      (void *)m1_esp_client_ble_beacon_stop },
         /* Offensive WiFi */
         { "m1_esp_client_deauth_start",    (void *)m1_esp_client_deauth_start },
         { "m1_esp_client_deauth_stop",     (void *)m1_esp_client_deauth_stop },
@@ -638,6 +713,24 @@ void m1_app_api_init(void)
         { "m1_esp_client_hs_stop",         (void *)m1_esp_client_hs_stop },
         { "m1_esp_client_beacon_start",    (void *)m1_esp_client_beacon_start },
         { "m1_esp_client_beacon_stop",     (void *)m1_esp_client_beacon_stop },
+        { "m1_esp_client_probe_start",     (void *)m1_esp_client_probe_start },
+        { "m1_esp_client_probe_stop",      (void *)m1_esp_client_probe_stop },
+        { "m1_esp_client_karma_start",     (void *)m1_esp_client_karma_start },
+        { "m1_esp_client_karma_stop",      (void *)m1_esp_client_karma_stop },
+        { "m1_esp_client_monitor_start",   (void *)m1_esp_client_monitor_start },
+        { "m1_esp_client_monitor_stop",    (void *)m1_esp_client_monitor_stop },
+        { "m1_esp_client_monitor_stats",   (void *)m1_esp_client_monitor_stats },
+        { "m1_esp_client_monitor_read",    (void *)m1_esp_client_monitor_read },
+        { "m1_esp_client_captive_start",   (void *)m1_esp_client_captive_start },
+        { "m1_esp_client_captive_stop",    (void *)m1_esp_client_captive_stop },
+        { "m1_esp_client_captive_creds",   (void *)m1_esp_client_captive_creds },
+        { "m1_esp_client_captive_diag",    (void *)m1_esp_client_captive_diag },
+        /* 802.15.4 (Zigbee/Thread) */
+        { "m1_esp_client_zb_sniff_start",  (void *)m1_esp_client_zb_sniff_start },
+        { "m1_esp_client_zb_sniff_stop",   (void *)m1_esp_client_zb_sniff_stop },
+        { "m1_esp_client_zb_sniff_get",    (void *)m1_esp_client_zb_sniff_get },
+        { "m1_esp_client_zb_flood_start",  (void *)m1_esp_client_zb_flood_start },
+        { "m1_esp_client_zb_flood_stop",   (void *)m1_esp_client_zb_flood_stop },
         /* ESP-NOW peer link */
         { "m1_esp_client_now_start",       (void *)m1_esp_client_now_start },
         { "m1_esp_client_now_stop",        (void *)m1_esp_client_now_stop },

@@ -388,6 +388,12 @@ static void subghz_apply_scene_orient(SubGhzSceneId id)
     }
 }
 
+/* Initial scene for the next subghz_scene_app_run(). Defaults to the internal
+ * menu; the per-feature entry wrappers below set it so a built-in menu leaf (Read,
+ * Read Raw, Saved, Add) or a Sub-GHz app can drop the user straight into one scene
+ * instead of the scene engine's own menu. Reset to the menu on every exit. */
+static SubGhzSceneId s_subghz_entry_scene = SubGhzSceneMenu;
+
 void subghz_scene_app_run(void)
 {
     /* SubGhzApp is 5+ KB — far larger than the menu task's 4 KB stack.
@@ -413,8 +419,15 @@ void subghz_scene_app_run(void)
     /* Initialize protocol decoder function pointers and pulse tables */
     subghz_decenc_init();
 
-    /* Push initial scene */
-    subghz_scene_push(&app, SubGhzSceneMenu);
+    /* Populate freq/mod label arrays on EVERY entry path. The per-feature entry
+     * wrappers (sub_ghz_read_entry etc.) call this runner directly, bypassing
+     * sub_ghz_scene_entry() which used to be the only place labels were built —
+     * without this, Config drew NULL labels and HardFaulted. Idempotent. */
+    subghz_init_labels_ext();
+
+    /* Push initial scene (the internal menu by default, or a specific scene when
+     * launched via a per-feature entry wrapper). */
+    subghz_scene_push(&app, s_subghz_entry_scene);
 
     /* Draw initial screen */
     subghz_scene_draw(&app);
@@ -589,4 +602,28 @@ void subghz_scene_app_run(void)
     menu_sub_ghz_exit();
     xQueueReset(button_events_q_hdl);
     xQueueReset(main_q_hdl);
+
+    s_subghz_entry_scene = SubGhzSceneMenu;   /* restore default for the next entry */
 }
+
+/* Run the scene engine starting at a specific scene. BACK from that scene pops an
+ * empty stack and exits back to the M1 menu — exactly what a discrete built-in
+ * leaf (or a single-purpose Sub-GHz app) wants. */
+void subghz_scene_app_run_at(SubGhzSceneId start)
+{
+    s_subghz_entry_scene = start;
+    subghz_scene_app_run();
+}
+
+/* Built-in core leaves (wired into the Sub-GHz folder in m1_menu.c). */
+void sub_ghz_read_entry(void)         { subghz_scene_app_run_at(SubGhzSceneRead); }
+void sub_ghz_read_raw_entry(void)     { subghz_scene_app_run_at(SubGhzSceneReadRaw); }
+void sub_ghz_saved_entry(void)        { subghz_scene_app_run_at(SubGhzSceneSaved); }
+void sub_ghz_add_entry(void)          { subghz_scene_app_run_at(SubGhzSceneSetType); }
+void sub_ghz_radio_settings_entry(void){ subghz_scene_app_run_at(SubGhzSceneConfig); }  /* freq/mod/hop/TX/ISM region */
+
+/* Scene-based Sub-GHz apps (exported to the app API; each .m1app just calls one). */
+void sub_ghz_proto_pirate_entry(void) { subghz_scene_app_run_at(SubGhzSceneProtoPirateMenu); }
+void sub_ghz_playlist_entry(void)     { subghz_scene_app_run_at(SubGhzScenePlaylist); }
+void sub_ghz_bind_entry(void)         { subghz_scene_app_run_at(SubGhzSceneBindWizard); }
+void sub_ghz_remote_entry(void)       { subghz_scene_app_run_at(SubGhzSceneRemote); }  /* load + create */

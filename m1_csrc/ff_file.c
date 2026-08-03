@@ -1,7 +1,7 @@
 /* See COPYING.txt for license details. */
 
 /*
- * flipper_file.c
+ * ff_file.c
  *
  * Generic Flipper Zero file format parser (key-value line based)
  *
@@ -16,7 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
-#include "flipper_file.h"
+#include "ff_file.h"
 
 /*************************** D E F I N E S ************************************/
 
@@ -87,14 +87,14 @@ static bool ff_line_is_empty(const char *line)
  * @param  path  file path on FatFs filesystem
  * @return true on success
  */
-bool ff_open(flipper_file_t *ctx, const char *path)
+bool ff_open(ff_file_t *ctx, const char *path)
 {
 	FRESULT res;
 
 	if (ctx == NULL || path == NULL)
 		return false;
 
-	memset(ctx, 0, sizeof(flipper_file_t));
+	memset(ctx, 0, sizeof(ff_file_t));
 
 	res = f_open(&ctx->fh, path, FA_READ | FA_OPEN_EXISTING);
 	if (res != FR_OK)
@@ -112,14 +112,14 @@ bool ff_open(flipper_file_t *ctx, const char *path)
  * @param  path  file path on FatFs filesystem
  * @return true on success
  */
-bool ff_open_write(flipper_file_t *ctx, const char *path)
+bool ff_open_write(ff_file_t *ctx, const char *path)
 {
 	FRESULT res;
 
 	if (ctx == NULL || path == NULL)
 		return false;
 
-	memset(ctx, 0, sizeof(flipper_file_t));
+	memset(ctx, 0, sizeof(ff_file_t));
 
 	res = f_open(&ctx->fh, path, FA_WRITE | FA_CREATE_ALWAYS);
 	if (res != FR_OK)
@@ -135,7 +135,7 @@ bool ff_open_write(flipper_file_t *ctx, const char *path)
  * @brief  Close an open Flipper file
  * @param  ctx  flipper file context
  */
-void ff_close(flipper_file_t *ctx)
+void ff_close(ff_file_t *ctx)
 {
 	if (ctx == NULL)
 		return;
@@ -155,7 +155,7 @@ void ff_close(flipper_file_t *ctx)
  * @param  ctx  flipper file context
  * @return true if a line was read, false at EOF or error
  */
-bool ff_read_line(flipper_file_t *ctx)
+bool ff_read_line(ff_file_t *ctx)
 {
 	if (ctx == NULL || !ctx->is_open || ctx->eof)
 		return false;
@@ -190,7 +190,7 @@ bool ff_read_line(flipper_file_t *ctx)
  * @param  ctx  flipper file context
  * @return true if the line was successfully parsed as key-value
  */
-bool ff_parse_kv(flipper_file_t *ctx)
+bool ff_parse_kv(ff_file_t *ctx)
 {
 	char *sep;
 	char *k_start;
@@ -245,7 +245,7 @@ bool ff_parse_kv(flipper_file_t *ctx)
 /**
  * @brief  Get the key string from the last parsed key-value line
  */
-const char *ff_get_key(const flipper_file_t *ctx)
+const char *ff_get_key(const ff_file_t *ctx)
 {
 	if (ctx == NULL)
 		return "";
@@ -256,7 +256,7 @@ const char *ff_get_key(const flipper_file_t *ctx)
 /**
  * @brief  Get the value string from the last parsed key-value line
  */
-const char *ff_get_value(const flipper_file_t *ctx)
+const char *ff_get_value(const ff_file_t *ctx)
 {
 	if (ctx == NULL)
 		return "";
@@ -267,7 +267,7 @@ const char *ff_get_value(const flipper_file_t *ctx)
 /**
  * @brief  Check if the current line is a separator comment (starts with '#')
  */
-bool ff_is_separator(const flipper_file_t *ctx)
+bool ff_is_separator(const ff_file_t *ctx)
 {
 	if (ctx == NULL)
 		return false;
@@ -283,7 +283,7 @@ bool ff_is_separator(const flipper_file_t *ctx)
  * @param  min_version       minimum acceptable version number
  * @return true if header is valid
  */
-bool ff_validate_header(flipper_file_t *ctx, const char *expected_filetype, uint8_t min_version)
+bool ff_validate_header(ff_file_t *ctx, const char *expected_filetype, uint8_t min_version)
 {
 	uint32_t version;
 
@@ -319,7 +319,7 @@ bool ff_validate_header(flipper_file_t *ctx, const char *expected_filetype, uint
 /**
  * @brief  Write a key-value pair with a string value
  */
-bool ff_write_kv_str(flipper_file_t *ctx, const char *key, const char *value)
+bool ff_write_kv_str(ff_file_t *ctx, const char *key, const char *value)
 {
 	if (ctx == NULL || !ctx->is_open || key == NULL || value == NULL)
 		return false;
@@ -334,7 +334,7 @@ bool ff_write_kv_str(flipper_file_t *ctx, const char *key, const char *value)
 /**
  * @brief  Write a key-value pair with a uint32 value
  */
-bool ff_write_kv_uint32(flipper_file_t *ctx, const char *key, uint32_t val)
+bool ff_write_kv_uint32(ff_file_t *ctx, const char *key, uint32_t val)
 {
 	if (ctx == NULL || !ctx->is_open || key == NULL)
 		return false;
@@ -349,7 +349,7 @@ bool ff_write_kv_uint32(flipper_file_t *ctx, const char *key, uint32_t val)
 /**
  * @brief  Write a key-value pair with a float value (2 decimal places)
  */
-bool ff_write_kv_float(flipper_file_t *ctx, const char *key, float val)
+bool ff_write_kv_float(ff_file_t *ctx, const char *key, float val)
 {
 	char buf[32];
 	int whole;
@@ -376,7 +376,7 @@ bool ff_write_kv_float(flipper_file_t *ctx, const char *key, float val)
 /**
  * @brief  Write a key-value pair with hex byte data (e.g., "07 00 00 00")
  */
-bool ff_write_kv_hex(flipper_file_t *ctx, const char *key, const uint8_t *data, uint8_t len)
+bool ff_write_kv_hex(ff_file_t *ctx, const char *key, const uint8_t *data, uint8_t len)
 {
 	char buf[FF_VALUE_MAX_LEN];
 	uint8_t i;
@@ -404,7 +404,7 @@ bool ff_write_kv_hex(flipper_file_t *ctx, const char *key, const uint8_t *data, 
 /**
  * @brief  Write a separator comment line ('#')
  */
-bool ff_write_separator(flipper_file_t *ctx)
+bool ff_write_separator(ff_file_t *ctx)
 {
 	if (ctx == NULL || !ctx->is_open)
 		return false;
@@ -419,7 +419,7 @@ bool ff_write_separator(flipper_file_t *ctx)
 /**
  * @brief  Write a comment line
  */
-bool ff_write_comment(flipper_file_t *ctx, const char *comment)
+bool ff_write_comment(ff_file_t *ctx, const char *comment)
 {
 	if (ctx == NULL || !ctx->is_open || comment == NULL)
 		return false;

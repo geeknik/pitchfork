@@ -10,7 +10,7 @@
  * lets the user build a 64-bit key with UP/DOWN cycling a single
  * digit and LEFT/RIGHT moving the cursor.  On OK the value is masked
  * via @ref subghz_create_proto_key_in_range, written to a temp `.sub`
- * file via @ref flipper_subghz_save_key, and the @ref
+ * file via @ref subghz_file_save_key, and the @ref
  * SubGhzSceneTransmitter scene is pushed with `tx_autostart=true` so
  * the signal fires immediately.
  *
@@ -35,7 +35,7 @@
 #include "m1_lcd.h"
 #include "m1_scene.h"
 #include "m1_subghz_scene.h"
-#include "flipper_subghz.h"
+#include "subghz_file.h"
 #include "subghz_create_proto.h"
 #include "subghz_hex_editor.h"
 
@@ -45,7 +45,7 @@
 
 /** Temp file path used to hand the user-built key to the Transmitter
  *  scene.  The Transmitter calls `sub_ghz_replay_prepare_flipper()`
- *  which spins its own intermediate `_flipper_tmp.sgh`, so this `.sub`
+ *  which spins its own intermediate `_ff_tmp.sgh`, so this `.sub`
  *  is purely an input artefact owned by SetKey.  We unlink it on
  *  resume-from-child and on scene_on_exit. */
 #define SETKEY_TMP_PATH   "0:/SUBGHZ/_setkey_tmp.sub"
@@ -99,7 +99,7 @@ static bool push_transmitter_with_key(SubGhzApp *app)
      * previous push so we never accidentally fire an old key. */
     unlink_tmp();
 
-    if (!flipper_subghz_save_key(SETKEY_TMP_PATH,
+    if (!subghz_file_save_key(SETKEY_TMP_PATH,
                                  s_spec->freq_hz,
                                  "FuriHalSubGhzPresetOok650Async",
                                  s_spec->proto_name,
