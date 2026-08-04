@@ -66,15 +66,13 @@ const char *m1_nfc_more_options_file[] = {
 		"Delete"
 };
 
-/* Menu for NFC Tools (both top-level nfc_tools() and Utils view). NFC Fuzzer
- * was removed — it duplicates the NFC Fuzzer app and was only reachable after
- * reading a real card. */
-#define NFC_TOOL_OPTIONS_COUNT  4
+/* NFC Utils (Read -> Read More -> Utils) now offers only Tag Info. The card
+ * operations — Clone Emulate, Write UID, Wipe Tag, Fuzzer — were removed: each
+ * duplicated a standalone app (NFC Emulate / NFC Write / NFC Fuzzer) and was
+ * only reachable after reading a real card. */
+#define NFC_TOOL_OPTIONS_COUNT  1
 static const char *m1_nfc_tool_options[] = {
-	"Tag Info",
-	"Clone Emulate",
-	"Write UID",
-	"Wipe Tag"
+	"Tag Info"
 };
 
 //************************** S T R U C T U R E S *******************************
@@ -1481,65 +1479,6 @@ static int nfc_utils_kp_handler(void)
 					m1_uiView_display_update(X_MENU_UPDATE_REFRESH);
 					break;
 				}
-
-				case 1: /* Clone Emulate — emulate the already-read card */
-				{
-					nfc_run_ctx_t *c = nfc_ctx_get();
-					if (c && c->head.uid_len > 0)
-					{
-						nfc_ctx_sync_emu();
-						m1_led_fast_blink(LED_BLINK_ON_RGB, LED_FASTBLINK_PWM_M, LED_FASTBLINK_ONTIME_M);
-						m1_app_send_q_message(nfc_worker_q_hdl, Q_EVENT_NFC_START_EMULATE);
-						vTaskDelay(50);
-
-						const char *et = "Emulate UID";
-						if (c->head.family == M1NFC_FAM_ULTRALIGHT &&
-						    c->dump.has_dump && c->dump.data && c->dump.unit_size == 4 && c->dump.unit_count > 0)
-							et = "Emulate";
-						else if (c->head.family == M1NFC_FAM_CLASSIC &&
-						         c->dump.has_dump && c->dump.data && c->dump.unit_size == 16 && c->dump.unit_count > 0)
-							et = "Emulate";
-
-						u8g2_FirstPage(&m1_u8g2);
-						u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
-						u8g2_DrawXBMP(&m1_u8g2, 0, 0, 48, 48, nfc_emit_48x48);
-						u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
-						u8g2_DrawStr(&m1_u8g2, 50, 15, et);
-						u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
-						u8g2_DrawStr(&m1_u8g2, 50, 26, "UID:");
-						u8g2_DrawStr(&m1_u8g2, 50, 36, hex2Str(c->head.uid, c->head.uid_len));
-						u8g2_DrawStr(&m1_u8g2, 50, 46, "Tag M1 on reader");
-						m1_u8g2_nextpage();
-
-						while (1) {
-							S_M1_Main_Q_t qi;
-							S_M1_Buttons_Status bs2;
-							BaseType_t r2 = xQueueReceive(main_q_hdl, &qi, portMAX_DELAY);
-							if (r2 != pdTRUE) continue;
-							if (qi.q_evt_type != Q_EVENT_KEYPAD) continue;
-							r2 = xQueueReceive(button_events_q_hdl, &bs2, 0);
-							if (r2 == pdTRUE && bs2.event[BUTTON_BACK_KP_ID] == BUTTON_EVENT_CLICK)
-								break;
-						}
-
-						ListenerRequestStop();
-						m1_led_fast_blink(LED_BLINK_ON_RGB, LED_FASTBLINK_PWM_OFF, LED_FASTBLINK_ONTIME_OFF);
-						m1_app_send_q_message(nfc_worker_q_hdl, Q_EVENT_NFC_EMULATE_STOP);
-						vTaskDelay(50);
-					}
-					m1_uiView_display_update(X_MENU_UPDATE_REFRESH);
-					break;
-				}
-
-				case 2: /* Write UID */
-					nfc_utils_write_uid_run();
-					m1_uiView_display_update(X_MENU_UPDATE_REFRESH);
-					break;
-
-				case 3: /* Wipe Tag */
-					nfc_utils_wipe_tag_run();
-					m1_uiView_display_update(X_MENU_UPDATE_REFRESH);
-					break;
 
 				default:
 					break;
