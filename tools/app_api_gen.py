@@ -134,13 +134,60 @@ def strip_comments(text):
     return text
 
 
-# Prototypes touching these firmware-internal types are exported (FW .inc) but
-# left out of the app-safe SDK header, since apps don't have the type defs.
-FW_TYPE_RE = re.compile(
-    r"\bS_M1_\w+|\bLFRFID\w*|\bir_file_\w+|\bff_file_t\b|\bFIL\b|\bFILINFO\b|"
-    r"\bu8g2_\w+|\bIRMP_DATA\b|\bir_universal_\w+|\brfid_\w+_t\b|"
-    r"\bsubghz_\w+_t\b|\bS_RPC\w*|\bGPIO_\w+"
-)
+# A prototype goes into the app-safe SDK header only if every TYPE it uses is
+# one apps already have (standard C + the handful the SDK defines). Anything
+# else (firmware-internal structs/typedefs/callbacks) → the function is still
+# exported in the FW table, but omitted here; a dev declares its prototype in
+# their app. Whitelist, not denylist — no per-type whack-a-mole.
+SAFE_TYPES = {
+    "void", "bool", "char", "short", "int", "long", "unsigned", "signed",
+    "float", "double", "const", "volatile",
+    "uint8_t", "uint16_t", "uint32_t", "uint64_t",
+    "int8_t", "int16_t", "int32_t", "int64_t", "size_t", "intptr_t", "uintptr_t",
+    # types the SDK header (m1app.h) has in scope by the time this is included:
+    "u8g2_t", "m1app_button_t", "m1app_dirent_t", "m1app_i2c_dev_t",
+}
+
+_IDENT = re.compile(r"[A-Za-z_]\w*")
+
+def _split_params(args):
+    out, depth, cur = [], 0, ""
+    for ch in args:
+        if ch == '(':
+            depth += 1
+        elif ch == ')':
+            depth -= 1
+        if ch == ',' and depth == 0:
+            out.append(cur); cur = ""
+        else:
+            cur += ch
+    if cur.strip():
+        out.append(cur)
+    return out
+
+def proto_is_app_safe(proto):
+    """True if the prototype's return type and every parameter type use only
+    SAFE_TYPES. Parameter NAMES (the last identifier of each param) are ignored."""
+    m = re.match(r"^(?:extern\s+)?(.*?)\b(\w+)\s*\((.*)\)$", proto.strip())
+    if not m:
+        return False
+    ret, args = m.group(1), m.group(3).strip()
+    for t in _IDENT.findall(ret):
+        if t not in SAFE_TYPES:
+            return False
+    if args in ("", "void"):
+        return True
+    if "(" in args:                       # function-pointer param → play safe
+        return False
+    for p in _split_params(args):
+        ids = _IDENT.findall(p)
+        if not ids:
+            continue
+        type_ids = ids[:-1] if len(ids) > 1 else ids   # drop the param name
+        for t in type_ids:
+            if t not in SAFE_TYPES:
+                return False
+    return True
 
 # A prototype statement, once whitespace-collapsed: <ret...> name ( args )
 _PROTO = re.compile(
@@ -315,7 +362,7 @@ def main():
     ]
     cur, omitted = None, 0
     for name, hdr, proto in exported:
-        if FW_TYPE_RE.search(proto):        # app doesn't have these types
+        if not proto_is_app_safe(proto):    # uses a type apps don't have
             omitted += 1
             continue
         if hdr != cur:
