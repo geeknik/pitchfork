@@ -1,0 +1,49 @@
+name: Host tests and contract gates
+
+# Host-side verification for the M1OS app runtime: the umbrella/storage and
+# ELF-loader test suites under ASan+UBSan, a libFuzzer smoke run, the ESP
+# wire-contract parity gate (against m1-esp32-brain), and app-API generator
+# determinism. No ARM toolchain needed; firmware cross-builds are validated
+# separately on a configured host.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  host-tests:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Host test suites (ASan + UBSan)
+        run: make -C m1_csrc/test test
+
+      - name: ELF loader fuzz smoke (30s)
+        run: make -C m1_csrc/test fuzz-elf FUZZ_ARGS="-max_total_time=30"
+
+  esp-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: M1OS
+      - uses: actions/checkout@v4
+        with:
+          repository: geeknik/m1-esp32-brain
+          path: m1-esp32-brain
+
+      - name: Wire-contract parity (m1_esp_rpc.h vs brain m1_rpc.h)
+        run: python3 M1OS/tools/check_esp_contract.py
+        env:
+          M1_BRAIN_HEADER: m1-esp32-brain/components/m1_rpc/include/m1_rpc.h
+
+  generator-determinism:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: app_api_gen must not want to rewrite tracked outputs
+        run: |
+          python3 tools/app_api_gen.py --quiet
+          git diff --exit-code -- m1_csrc/m1_app_api_generated.inc m1_csrc/m1_app_api_includes.inc

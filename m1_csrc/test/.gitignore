@@ -1,0 +1,4 @@
+# host-test binaries (make -C m1_csrc/test)
+test-storage
+test-elf
+fuzz-elf
