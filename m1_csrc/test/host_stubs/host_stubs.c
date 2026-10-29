@@ -7,7 +7,10 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include "task.h"                /* stub: current-task steering */
 #include "stm32h5xx_hal.h"     /* stub: provides _ATTRIBUTE */
+
+void *g_host_current_task;
 #include "m1_log_debug_defs.h"
 
 /* ---------------- tree ---------------- */

@@ -68,11 +68,11 @@ static void test_path_policy(void)
     CHECK(strcmp(out, "0:/AppData/dir") == 0);
 }
 
-static void fill_req(m1_sto_hdr_t *hdr, uint16_t size)
+static void fill_req(m1_call_hdr_t *hdr, uint16_t size)
 {
     memset(hdr, 0, size);
     hdr->size = size;
-    hdr->version = M1_STO_LAYOUT_V1;
+    hdr->version = M1_CALL_LAYOUT_V1;
 }
 
 static void test_stat_write_read_append(void)
@@ -257,7 +257,7 @@ static void test_header_validation(void)
     fill_req(&preq.hdr, sizeof(preq));
     preq.hdr.version = 2;
     CHECK(m1_storage_call(M1_STO_OP_STAT, &preq, sizeof(preq), &sres, sizeof(sres)) == M1_SYS_ERR_BAD_ARG);
-    preq.hdr.version = M1_STO_LAYOUT_V1;
+    preq.hdr.version = M1_CALL_LAYOUT_V1;
     preq.hdr.flags = 0x80;
     CHECK(m1_storage_call(M1_STO_OP_STAT, &preq, sizeof(preq), &sres, sizeof(sres)) == M1_SYS_ERR_BAD_ARG);
 

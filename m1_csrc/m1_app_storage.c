@@ -47,7 +47,6 @@ static const char *const s_read_prefixes[] = {
 
 /********************* F U N C T I O N   P R O T O T Y P E S ******************/
 
-static bool sto_hdr_ok(const m1_sto_hdr_t *hdr, uint16_t req_len, uint16_t min_len);
 static bool sto_path_copy(char *dst, uint32_t cap, const char *src);
 static FRESULT sto_ensure_sandbox(void);
 static FRESULT sto_atomic_write(const char *resolved, const uint8_t *data, uint16_t len);
@@ -138,17 +137,6 @@ int m1_storage_resolve_path(uint8_t write_class, const char *in,
     return 0;
 }
 
-static bool sto_hdr_ok(const m1_sto_hdr_t *hdr, uint16_t req_len, uint16_t min_len)
-{
-    if (!hdr || req_len < min_len)
-        return false;
-    if (hdr->version != M1_STO_LAYOUT_V1)
-        return false;
-    if (hdr->flags & ~M1_STO_FLAG_TRUNC)        /* no flags defined on requests yet */
-        return false;
-    return true;
-}
-
 static bool sto_path_copy(char *dst, uint32_t cap, const char *src)
 {
     size_t n = strnlen(src, cap);
@@ -229,15 +217,16 @@ int32_t m1_storage_call(uint32_t op, const void *req, uint16_t req_len,
     switch (op) {
 
     case M1_STO_OP_STAT: {
-        if (!sto_hdr_ok(req, req_len, sizeof(m1_sto_path_req_t)))
-            return M1_SYS_ERR_BAD_ARG;
+        int hr_ = m1_call_hdr_ok(req, req_len, sizeof(m1_sto_path_req_t));
+            if (hr_ != 0)
+                return hr_;
         const m1_sto_path_req_t *r = req;
         if (!resp || resp_len < sizeof(m1_sto_stat_resp_t))
             return M1_SYS_ERR_RANGE;
         m1_sto_stat_resp_t *o = resp;
         memset(o, 0, sizeof(*o));
         o->hdr.size = sizeof(*o);
-        o->hdr.version = M1_STO_LAYOUT_V1;
+        o->hdr.version = M1_CALL_LAYOUT_V1;
         int pr = m1_storage_resolve_path(0, r->path, resolved, sizeof(resolved));
         if (pr != 0)
             return pr;
@@ -257,8 +246,9 @@ int32_t m1_storage_call(uint32_t op, const void *req, uint16_t req_len,
     }
 
     case M1_STO_OP_READ: {
-        if (!sto_hdr_ok(req, req_len, sizeof(m1_sto_read_req_t)))
-            return M1_SYS_ERR_BAD_ARG;
+        int hr_ = m1_call_hdr_ok(req, req_len, sizeof(m1_sto_read_req_t));
+            if (hr_ != 0)
+                return hr_;
         const m1_sto_read_req_t *r = req;
         if (!resp || resp_len < sizeof(m1_sto_read_resp_t))
             return M1_SYS_ERR_RANGE;
@@ -267,7 +257,7 @@ int32_t m1_storage_call(uint32_t op, const void *req, uint16_t req_len,
         m1_sto_read_resp_t *o = resp;
         memset(o, 0, sizeof(*o));
         o->hdr.size = sizeof(*o);
-        o->hdr.version = M1_STO_LAYOUT_V1;
+        o->hdr.version = M1_CALL_LAYOUT_V1;
         int pr = m1_storage_resolve_path(0, r->path, resolved, sizeof(resolved));
         if (pr != 0)
             return pr;
@@ -290,8 +280,9 @@ int32_t m1_storage_call(uint32_t op, const void *req, uint16_t req_len,
 
     case M1_STO_OP_WRITE:
     case M1_STO_OP_APPEND: {
-        if (!sto_hdr_ok(req, req_len, sizeof(m1_sto_write_req_t)))
-            return M1_SYS_ERR_BAD_ARG;
+        int hr_ = m1_call_hdr_ok(req, req_len, sizeof(m1_sto_write_req_t));
+            if (hr_ != 0)
+                return hr_;
         const m1_sto_write_req_t *r = req;
         if (r->length > M1_STO_IO_MAX)
             return M1_SYS_ERR_RANGE;
@@ -310,15 +301,16 @@ int32_t m1_storage_call(uint32_t op, const void *req, uint16_t req_len,
             m1_sto_simple_resp_t *o = resp;
             memset(o, 0, sizeof(*o));
             o->hdr.size = sizeof(*o);
-            o->hdr.version = M1_STO_LAYOUT_V1;
+            o->hdr.version = M1_CALL_LAYOUT_V1;
             o->fresult = (uint32_t)fr;
         }
         return (fr == FR_OK) ? 0 : M1_SYS_ERR_IO;
     }
 
     case M1_STO_OP_MKDIR: {
-        if (!sto_hdr_ok(req, req_len, sizeof(m1_sto_path_req_t)))
-            return M1_SYS_ERR_BAD_ARG;
+        int hr_ = m1_call_hdr_ok(req, req_len, sizeof(m1_sto_path_req_t));
+            if (hr_ != 0)
+                return hr_;
         const m1_sto_path_req_t *r = req;
         int pr = m1_storage_resolve_path(1, r->path, resolved, sizeof(resolved));
         if (pr != 0)
@@ -335,8 +327,9 @@ int32_t m1_storage_call(uint32_t op, const void *req, uint16_t req_len,
     }
 
     case M1_STO_OP_REMOVE: {
-        if (!sto_hdr_ok(req, req_len, sizeof(m1_sto_path_req_t)))
-            return M1_SYS_ERR_BAD_ARG;
+        int hr_ = m1_call_hdr_ok(req, req_len, sizeof(m1_sto_path_req_t));
+            if (hr_ != 0)
+                return hr_;
         const m1_sto_path_req_t *r = req;
         int pr = m1_storage_resolve_path(1, r->path, resolved, sizeof(resolved));
         if (pr != 0)
@@ -346,8 +339,9 @@ int32_t m1_storage_call(uint32_t op, const void *req, uint16_t req_len,
     }
 
     case M1_STO_OP_RENAME: {
-        if (!sto_hdr_ok(req, req_len, sizeof(m1_sto_rename_req_t)))
-            return M1_SYS_ERR_BAD_ARG;
+        int hr_ = m1_call_hdr_ok(req, req_len, sizeof(m1_sto_rename_req_t));
+            if (hr_ != 0)
+                return hr_;
         const m1_sto_rename_req_t *r = req;
         char resolved_to[M1_STO_RESOLVED_MAX];
         int pr = m1_storage_resolve_path(1, r->from, resolved, sizeof(resolved));
@@ -361,8 +355,9 @@ int32_t m1_storage_call(uint32_t op, const void *req, uint16_t req_len,
     }
 
     case M1_STO_OP_LIST: {
-        if (!sto_hdr_ok(req, req_len, sizeof(m1_sto_list_req_t)))
-            return M1_SYS_ERR_BAD_ARG;
+        int hr_ = m1_call_hdr_ok(req, req_len, sizeof(m1_sto_list_req_t));
+            if (hr_ != 0)
+                return hr_;
         const m1_sto_list_req_t *r = req;
         if (!resp || resp_len < sizeof(m1_sto_list_resp_t))
             return M1_SYS_ERR_RANGE;
@@ -371,7 +366,7 @@ int32_t m1_storage_call(uint32_t op, const void *req, uint16_t req_len,
         m1_sto_list_resp_t *o = resp;
         memset(o, 0, sizeof(*o));
         o->hdr.size = sizeof(*o);
-        o->hdr.version = M1_STO_LAYOUT_V1;
+        o->hdr.version = M1_CALL_LAYOUT_V1;
         int pr = m1_storage_resolve_path(0, r->path, resolved, sizeof(resolved));
         if (pr != 0)
             return pr;
