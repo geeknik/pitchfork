@@ -21,7 +21,8 @@ int32_t m1_<domain>_call(uint32_t op, const void *req, uint16_t req_len,
 |---|---|---|
 | system/info | `m1_sys_call(op, args)` | shipped (3 ops, value-return style) |
 | storage | `m1_storage_call` | shipped (8 ops, request/response style) |
-| ui, radio, nfc, rfid, ir, system-control | `m1_ui_call`, `m1_radio_call`, … | planned — add only per this spec |
+| ui/display | `m1_ui_call` | shipped (3 ops; first **leased** resource — focus-gated FLUSH, NOTIFY, FOCUS_QUERY) |
+| radio, nfc, rfid, ir, system-control | `m1_radio_call`, … | planned — add only per this spec |
 
 ## 2. The rules (what makes this an ABI and not a convenience)
 
@@ -71,6 +72,18 @@ The raw FatFs exports (`f_open`, `f_unlink`, …) remain in the legacy table
 for existing apps but are frozen: no new app should link them, and they are
 first in line to move behind umbrellas once the app corpus is verified with
 `nm -u` (the method used in commit `ff907db`).
+
+## 3a. UI domain (API level 7) — the lease reference
+
+The display is the proving ground for the thesis resource-lease model
+(`m1_ui_focus.c`): one exclusive owner (the foreground app's task, granted at
+app start by the manager and revoked at exit — focus never outlives the app),
+or free (kernel UI). `FLUSH` and `NOTIFY` check the lease before touching the
+framebuffer and return `M1_SYS_ERR_DENIED` for non-owners; `FOCUS_QUERY` lets
+an app verify its own standing. The direct drawing primitives stay exported
+and frozen for existing apps; their enforcement is deliberately deferred to
+the next API level so shipped apps keep working. The lease registry is pure
+token logic, fully host-tested (`m1_csrc/test/test_m1_ui.c`).
 
 ## 4. Legacy surface freeze
 

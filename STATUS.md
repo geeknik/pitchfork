@@ -192,7 +192,7 @@ the app runtime, menu engine, RPC stack, and tracked allocator.
 | 5 | Exclusive SD ownership firmware vs MSC | **Audit needed** | Stock has the `usbmsc_sd_enable` gate but a verified race (card-detect task can remount during an active MSC session); M1OS's diverged `m1_sdcard.c` must be audited against the same race |
 | 6 | Fuzz ELF loader + manifest parser on host | **Done (first tranche)** | `m1_csrc/test/`: storage-umbrella + ELF-loader suites under ASan/UBSan, libFuzzer harness, CI workflow. Found and fixed a real heap OOB (§ below) |
 | 7 | Define service-dispatch ABI; stop direct exports | **In progress** | Spec in `SERVICE_ABI.md`; `m1_storage_call` shipped (API level 6, sandboxed, atomic writes); legacy 544-symbol surface declared closed |
-| 8 | Resource leases (ESP, Sub-GHz, NFC, IR, USB, display focus) | **Missing on STM32** | Only per-driver mutexes. Note: mtkcore already has a radio arbiter (conflict classes) — mirror its model |
+| 8 | Resource leases (ESP, Sub-GHz, NFC, IR, USB, display focus) | **Partial** | Display-focus lease shipped (m1_ui_focus + m1_ui_call, API level 7): grant at app start, idempotent revoke at exit, gated FLUSH/NOTIFY. Radio/NFC/IR/USB/SD leases remain; mtkcore's arbiter is the model |
 | 9 | Capture envelope + session directory schema | **Chassis exists in stock** | Stock capture stack (WiFi-only, `session_id` hardcoded `0xCA07`, no cross-radio envelope). Define the envelope, then port the chassis |
 | 10 | Signal Atlas reference app | **Blocked** | Depends on 7+8+9 landing; it becomes the first `.m1app` proving the platform |
 
@@ -224,6 +224,20 @@ the app runtime, menu engine, RPC stack, and tracked allocator.
    (`SERVICE_ABI.md` §6).
 6. **CI** (`.github/workflows/host-tests.yml`): host suites + fuzz smoke,
    strict ESP parity (brain checked out alongside), generator determinism.
+7. **Brain provenance closed** (brain repo commit `57e6ae4`): the upstream
+   v1.5.0 release binary was captured — md5 matches its shipped `.md5`,
+   sha256 recorded, and the app descriptor reveals **ESP-IDF v5.1.2-dirty**
+   (built 2026-08-01). `tools/IDF_PIN` is set to v5.1.2 with the -dirty
+   caveat; a hash-verified clean rebuild remains the last step. The locally
+   attached M1 runs stock 0.8.x firmware (verified over USB CDC), so a live
+   M1OS↔brain pairing check waits for the M1OS flash.
+8. **UI umbrella + display-focus lease** (app API level 7, 1.1.82):
+   `m1_ui_call` (FOCUS_QUERY / focus-gated FLUSH / NOTIFY) and the pure
+   `m1_ui_focus` lease registry, granted/revoked by the app manager around
+   every app run. First proof of the thesis resource-lease model. Host suite
+   now defaults to Homebrew clang, whose LLVM runtime supports
+   LeakSanitizer on darwin — local runs leak-gate like Linux CI (Apple
+   clang does not).
 
 ## 8. Compatibility matrix (software-verified rows)
 

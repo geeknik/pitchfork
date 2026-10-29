@@ -24,6 +24,7 @@
 #include "stm32h5xx_hal.h"
 #include "main.h"
 #include "m1_app_manager.h"
+#include "m1_ui_focus.h"
 #include "m1_elf_loader.h"
 #include "m1_app_api.h"
 #include "m1_system.h"
@@ -659,6 +660,13 @@ static void app_task_wrapper(void *param)
     M1_LOG_I(TAG, "App task started, entry=0x%08lX",
              (unsigned long)ctx->elf.entry_point);
 
+    /* This task owns the display for its whole lifetime: the lease is granted
+     * here and revoked on every exit path below, so focus never outlives the
+     * app. A failed grant means a previous app leaked its lease — draw anyway
+     * (single foreground app) but make the leak visible. */
+    if (!m1_ui_focus_try_grant((void *)xTaskGetCurrentTaskHandle()))
+        M1_LOG_E(TAG, "display focus already held at app start (leaked?)");
+
     /* Call the app's main function */
     int32_t result = entry(NULL);
 
@@ -666,6 +674,10 @@ static void app_task_wrapper(void *param)
 
     /* Signal the caller that we're done */
     ctx->running = false;
+
+    /* Give the display back before waking the menu (idempotent: only the
+     * owner can revoke, and this task is the owner). */
+    (void)m1_ui_focus_revoke((void *)xTaskGetCurrentTaskHandle());
 
     /* Notify the caller task */
     if (ctx->caller_handle != NULL)

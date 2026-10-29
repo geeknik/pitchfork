@@ -101,7 +101,7 @@ typedef struct {
  * their .m1meta still load; an app needing a newer capability declares this
  * level as its minimum. v3: added the m1_sys_call grouped-dispatch umbrella.
  * v4: added m1app_dir_list(), the stable app-safe SD directory browser. */
-#define M1_APP_API_VERSION      6   /* v6: added the m1_storage_call umbrella (m1_app_syscall.h) */
+#define M1_APP_API_VERSION      7   /* v7: added the m1_ui_call umbrella + display-focus lease (m1_app_syscall.h) */
 
 /* Core (pre-category) manifest size — old apps have exactly this. Anything from
  * this size up is accepted; appended fields are zero-filled when absent. */

@@ -160,6 +160,35 @@ static int m1app_dir_list(const char *path, m1app_dirent_t *out, uint16_t max_en
 }
 
 /*
+ * UI-domain kernel hooks (m1_ui_call in m1_app_ui.c checks the focus lease
+ * first; only then do these touch the framebuffer). Split out so the
+ * umbrella itself stays host-testable without u8g2.
+ */
+uint8_t m1_ui_hook_flush(void)
+{
+    return m1_u8g2_nextpage();
+}
+
+void m1_ui_hook_notify(const char *msg, uint16_t duration_ms)
+{
+    u8g2_t *u = &m1_u8g2;
+    u8g2_uint_t w = u8g2_GetDisplayWidth(u);
+    u8g2_uint_t h = u8g2_GetDisplayHeight(u);
+
+    /* Inverse band with the message; the caller's next full redraw restores
+     * its own frame. Runs in the caller's (lease-holding) context, so there
+     * is no cross-task framebuffer race to guard. */
+    u8g2_SetFont(u, u8g2_font_6x10_tr);
+    u8g2_SetDrawColor(u, 1);
+    u8g2_DrawBox(u, 0, (h / 2) - 12, w, 24);
+    u8g2_SetDrawColor(u, 0);
+    u8g2_DrawStr(u, 4, (h / 2) + 4, msg);
+    u8g2_SetDrawColor(u, 1);
+    (void)m1_u8g2_nextpage();
+    vTaskDelay(pdMS_TO_TICKS(duration_ms));
+}
+
+/*
  * Wrapper for m1_usb_get_state
  */
 static uint8_t m1_usb_get_state(void)
@@ -403,6 +432,7 @@ void m1_app_api_init(void)
         /* ===== Grouped syscall umbrellas (see m1_app_syscall.h) ===== */
         { "m1_sys_call",       (void *)m1_sys_call },
         { "m1_storage_call",   (void *)m1_storage_call },   /* m1_app_storage.c */
+        { "m1_ui_call",        (void *)m1_ui_call },        /* m1_app_ui.c */
 
         /* ===== Input ===== */
         { "game_poll_button",  (void *)game_poll_button },
