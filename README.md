@@ -1,11 +1,13 @@
 <!-- See COPYING.txt for license details. -->
 
-# M1OS
+# Pitchfork
 
-**A modular app-runtime firmware for the Monstatek M1** (STM32H573 host +
+**Offensive radio firmware for the MonstaTek M1** (STM32H573 host +
 ESP32-C6 network brain).
 
-Flash the kernel **once**, then run `.m1app` applications from the SD card
+> Formerly **M1OS** — same project, new name. (See [`STATUS.md`](STATUS.md) §2.)
+
+A modular app runtime: flash the kernel **once**, then run `.m1app` applications from the SD card
 **forever** — no reflash loop for app development. Devs compile an app, users
 drop it on the card (or push it over USB/WiFi) and run it. The menu is
 user-customizable: arrange apps into the positions you want and nest them.
@@ -16,7 +18,7 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full design.
 
 ## Status
 
-**Active runtime, 1.1-series.** Current version **1.1.80.0**. M1OS was seeded
+**Active runtime, 1.1-series.** Current version **1.1.83.0**. Pitchfork (then M1OS) was seeded
 from the fully-bundled `m1-firmware` at `v0.8.0.0-C3.148` (2026-07-28) and has
 since diverged deliberately: it ships the `.m1app` ELF app runtime (API level
 5, 544 exported symbols), user-customizable SD-driven menus, an RPC stack with
@@ -29,13 +31,13 @@ and in `ARCHITECTURE.md`, `CHANGELOG.md`, and `COMPATIBILITY.md`.
 
 ## Relationship to the classic firmware
 
-M1OS and `m1-firmware` are **two living products**, developed side by side:
+Pitchfork and `m1-firmware` are **two living products**, developed side by side:
 
 - [`m1-firmware`](https://github.com/bedge117/M1) (`v0.8.0.0-C3.N`) — the
   fully-bundled firmware, the pool M1OS draws from as apps. (Note: the stock
   MonstaTek line has moved on to 0.8.1.0 with fixes M1OS has not absorbed —
   see [`STATUS.md`](STATUS.md) §6 for the porting pool.)
-- **M1OS** (`n.n.n.n`) — this modular app runtime.
+- **Pitchfork** (`n.n.n.n`) — this modular app runtime, formerly M1OS.
 
 They share one ESP32-C6 brain firmware and one app SDK
 ([`m1-sdk`](https://github.com/bedge117/m1-sdk)), and never collide: separate

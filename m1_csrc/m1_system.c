@@ -877,9 +877,9 @@ void startup_info_screen_draw(const char *scr_text)
 		int pw = u8g2_GetDisplayWidth(&m1_u8g2);   /* 64 */
 		int sw;
 
-		u8g2_DrawXBMP(&m1_u8g2, (pw - M1_POWERUP_LOGO_WIDTH) / 2, 12, M1_POWERUP_LOGO_WIDTH, M1_POWERUP_LOGO_HEIGHT, m1_logo_40x32);
+		u8g2_DrawXBMP(&m1_u8g2, (pw - M1_POWERUP_LOGO_WIDTH) / 2, 12, M1_POWERUP_LOGO_WIDTH, M1_POWERUP_LOGO_HEIGHT, m1_logo_pitchfork_40x32);
 		u8g2_SetFont(&m1_u8g2, M1_POWERUP_LOGO_FONT);
-		sw = u8g2_GetStrWidth(&m1_u8g2, "M1OS"); u8g2_DrawStr(&m1_u8g2, (pw - sw) / 2, 60, "M1OS");
+		sw = u8g2_GetStrWidth(&m1_u8g2, "Pitchfork"); u8g2_DrawStr(&m1_u8g2, (pw - sw) / 2, 60, "Pitchfork");
 		u8g2_SetFont(&m1_u8g2, M1_DISP_MAIN_MENU_FONT_N);
 		sw = u8g2_GetStrWidth(&m1_u8g2, ver1);       u8g2_DrawStr(&m1_u8g2, (pw - sw) / 2, 76, ver1);
 		sw = u8g2_GetStrWidth(&m1_u8g2, ver2);       u8g2_DrawStr(&m1_u8g2, (pw - sw) / 2, 88, ver2);
@@ -903,9 +903,9 @@ void startup_info_screen_draw(const char *scr_text)
 		int tx = M1_POWERUP_LOGO_LEFT_POS_X + M1_POWERUP_LOGO_WIDTH + 3;
 		/* Battery indicator, upper-left corner (landscape splash only). */
 		m1_draw_battery_icon(1, 1);
-		u8g2_DrawXBMP(&m1_u8g2, M1_POWERUP_LOGO_LEFT_POS_X, M1_POWERUP_LOGO_TOP_POS_Y, M1_POWERUP_LOGO_WIDTH, M1_POWERUP_LOGO_HEIGHT, m1_logo_40x32);
+		u8g2_DrawXBMP(&m1_u8g2, M1_POWERUP_LOGO_LEFT_POS_X, M1_POWERUP_LOGO_TOP_POS_Y, M1_POWERUP_LOGO_WIDTH, M1_POWERUP_LOGO_HEIGHT, m1_logo_pitchfork_40x32);
 		u8g2_SetFont(&m1_u8g2, M1_POWERUP_LOGO_FONT);
-		u8g2_DrawStr(&m1_u8g2, tx, M1_POWERUP_LOGO_TOP_POS_Y + 10, "M1OS");
+		u8g2_DrawStr(&m1_u8g2, tx, M1_POWERUP_LOGO_TOP_POS_Y + 10, "Pitchfork");
 		u8g2_SetFont(&m1_u8g2, M1_DISP_MAIN_MENU_FONT_N);
 		u8g2_DrawStr(&m1_u8g2, tx, M1_POWERUP_LOGO_TOP_POS_Y + 21, ver1);
 		u8g2_DrawStr(&m1_u8g2, tx, M1_POWERUP_LOGO_TOP_POS_Y + 31, ver2);

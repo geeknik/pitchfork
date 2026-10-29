@@ -1,4 +1,4 @@
-# M1OS Status — Source of Truth
+# Pitchfork Status — Source of Truth
 
 Audit date: 2026-10-29. This document is the authoritative statement of what
 M1OS **is** today, how the surrounding repositories relate to it, and where it
@@ -18,6 +18,13 @@ their stale claims:
 ---
 
 ## 1. Current state in one paragraph
+
+**Naming: the project was renamed M1OS → Pitchfork (2026-10-29)** — "offensive
+radio firmware for the MonstaTek M1"; mascot is a gremlin holding a pitchfork
+(boot splash, `m1_logo_pitchfork_40x32`). Historical documents and git history
+keep the M1OS name. Also resolved: this firmware targets a **128×64** canvas
+(the splash logo is 40×32 at `m1_display.h:123`) — stock's ERC240160/240×160
+claim describes different hardware; the README hardware table is correct here.
 
 M1OS is a full-source fork of the **C3 community firmware at
 `v0.8.0.0-C3.148`** (fork commit `8cecf41`, 2026-07-28), re-versioned onto its
