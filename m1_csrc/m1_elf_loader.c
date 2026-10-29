@@ -493,6 +493,13 @@ static void *elf_resolve_symbol(const char *name, const m1_api_interface_t *api)
 
 
 /*============================================================================*/
+/* Byte-wise accessors for relocation sites: a site may be unaligned, and
+ * dereferencing a misaligned pointer is UB even on cores that tolerate it. */
+static uint32_t elf_rd32(const uint8_t *p) { uint32_t v; memcpy(&v, p, 4); return v; }
+static void     elf_wr32(uint8_t *p, uint32_t v) { memcpy(p, &v, 4); }
+static uint16_t elf_rd16(const uint8_t *p) { uint16_t v; memcpy(&v, p, 2); return v; }
+static void     elf_wr16(uint8_t *p, uint16_t v) { memcpy(p, &v, 2); }
+
 /*
  * @brief  Apply a single ARM relocation
  * @param  target_base  Base address of the section being relocated
@@ -507,22 +514,22 @@ static bool elf_apply_relocation(uint8_t *target_base, uint32_t offset,
                                   uint8_t rel_type, uint32_t sym_addr,
                                   uint32_t patch_addr)
 {
-    uint32_t *loc32 = (uint32_t *)(target_base + offset);
-
     switch (rel_type)
     {
         case R_ARM_ABS32:
         case R_ARM_TARGET1:
         {
             /* S + A */
-            *loc32 += sym_addr;
+            elf_wr32(target_base + offset,
+                     elf_rd32(target_base + offset) + sym_addr);
             break;
         }
 
         case R_ARM_REL32:
         {
             /* S + A - P */
-            *loc32 += sym_addr - patch_addr;
+            elf_wr32(target_base + offset,
+                     elf_rd32(target_base + offset) + sym_addr - patch_addr);
             break;
         }
 
@@ -538,9 +545,10 @@ static bool elf_apply_relocation(uint8_t *target_base, uint32_t offset,
              * offset = SignExtend(S:I1:I2:imm10:imm11:0, 25)
              * where I1 = NOT(J1 XOR S), I2 = NOT(J2 XOR S)
              */
-            uint16_t *hw = (uint16_t *)(target_base + offset);
-            uint16_t upper = hw[0];
-            uint16_t lower = hw[1];
+            if (offset & 1u)
+                return false;   /* halfword pair must be 2-byte aligned */
+            uint16_t upper = elf_rd16(target_base + offset);
+            uint16_t lower = elf_rd16(target_base + offset + 2);
 
             /* Decode existing offset */
             uint32_t s_bit  = (upper >> 10) & 1;
@@ -580,8 +588,10 @@ static bool elf_apply_relocation(uint8_t *target_base, uint32_t offset,
             uint32_t new_j1 = (~(new_i1 ^ new_s)) & 1;
             uint32_t new_j2 = (~(new_i2 ^ new_s)) & 1;
 
-            hw[0] = (upper & 0xF800) | (uint16_t)((new_s << 10) | new_imm10);
-            hw[1] = (lower & 0xD000) | (uint16_t)((new_j1 << 13) | (new_j2 << 11) | new_imm11);
+            elf_wr16(target_base + offset,
+                     (upper & 0xF800) | (uint16_t)((new_s << 10) | new_imm10));
+            elf_wr16(target_base + offset + 2,
+                     (lower & 0xD000) | (uint16_t)((new_j1 << 13) | (new_j2 << 11) | new_imm11));
             break;
         }
 
@@ -595,9 +605,10 @@ static bool elf_apply_relocation(uint8_t *target_base, uint32_t offset,
              *
              * imm16 = imm4:i:imm3:imm8
              */
-            uint16_t *hw = (uint16_t *)(target_base + offset);
-            uint16_t upper = hw[0];
-            uint16_t lower = hw[1];
+            if (offset & 1u)
+                return false;   /* halfword pair must be 2-byte aligned */
+            uint16_t upper = elf_rd16(target_base + offset);
+            uint16_t lower = elf_rd16(target_base + offset + 2);
 
             /* Extract existing imm16 */
             uint32_t imm4 = upper & 0x000F;
@@ -615,17 +626,20 @@ static bool elf_apply_relocation(uint8_t *target_base, uint32_t offset,
             uint32_t new_imm3 = (new_val >> 8) & 0x07;
             uint32_t new_imm8 = new_val & 0xFF;
 
-            hw[0] = (upper & 0xFBF0) | (uint16_t)((new_i << 10) | new_imm4);
-            hw[1] = (lower & 0x8F00) | (uint16_t)((new_imm3 << 12) | new_imm8);
+            elf_wr16(target_base + offset,
+                     (upper & 0xFBF0) | (uint16_t)((new_i << 10) | new_imm4));
+            elf_wr16(target_base + offset + 2,
+                     (lower & 0x8F00) | (uint16_t)((new_imm3 << 12) | new_imm8));
             break;
         }
 
         case R_ARM_THM_MOVT_ABS:
         {
             /* Same encoding as MOVW but uses upper 16 bits of symbol */
-            uint16_t *hw = (uint16_t *)(target_base + offset);
-            uint16_t upper = hw[0];
-            uint16_t lower = hw[1];
+            if (offset & 1u)
+                return false;   /* halfword pair must be 2-byte aligned */
+            uint16_t upper = elf_rd16(target_base + offset);
+            uint16_t lower = elf_rd16(target_base + offset + 2);
 
             uint32_t imm4 = upper & 0x000F;
             uint32_t i_bit = (upper >> 10) & 1;
@@ -641,8 +655,10 @@ static bool elf_apply_relocation(uint8_t *target_base, uint32_t offset,
             uint32_t new_imm3 = (new_val >> 8) & 0x07;
             uint32_t new_imm8 = new_val & 0xFF;
 
-            hw[0] = (upper & 0xFBF0) | (uint16_t)((new_i << 10) | new_imm4);
-            hw[1] = (lower & 0x8F00) | (uint16_t)((new_imm3 << 12) | new_imm8);
+            elf_wr16(target_base + offset,
+                     (upper & 0xFBF0) | (uint16_t)((new_i << 10) | new_imm4));
+            elf_wr16(target_base + offset + 2,
+                     (lower & 0x8F00) | (uint16_t)((new_imm3 << 12) | new_imm8));
             break;
         }
 
@@ -815,6 +831,18 @@ static elf_load_status_t elf_relocate_section(FIL *fp, elf_app_t *app,
                 M1_LOG_W(TAG, "Symbol in unloaded section %u", sym->st_shndx);
                 sym_addr = sym->st_value;
             }
+        }
+
+        /* Every supported relocation touches exactly 4 bytes at r_offset. A
+         * site outside the target section means a malformed .m1app and must
+         * never reach the patch code — otherwise the loader is an arbitrary
+         * heap read/write primitive for privileged app code. */
+        if (rel_entry.r_offset + 4u > target_sec->size)
+        {
+            M1_LOG_W(TAG, "Reloc site 0x%lX outside section (size %lu)",
+                     (unsigned long)rel_entry.r_offset,
+                     (unsigned long)target_sec->size);
+            continue;
         }
 
         /* Compute the absolute address of the patch site */
