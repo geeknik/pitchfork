@@ -187,12 +187,12 @@ the app runtime, menu engine, RPC stack, and tracked allocator.
 |---|---|---|---|
 | 1 | Source-of-truth status document | **Done** | This file; README now links it |
 | 2 | Tag known-working STM32/ESP/SDK/Studio combos | **Partial** | §8 matrix is the software side; brain `v1.5.0` tagged; needs one hardware-verified row per pairing |
-| 3 | Persistent fault + reset-reason records | **Partial** | M1OS: TAMP fault stash + reset only. Need SD `/System/crash` records, full RCC CSR snapshot, crash-loop counter |
+| 3 | Persistent fault + reset-reason records | **Done (first tranche)** | Fault capture now also stashes uptime + consecutive-fault count (TAMP BKP13/14R); boot snapshots raw RSR before the watchdog clears it; first good SD mount writes a bounded record to `0:/System/crash/crash_NNN.txt` (ring of 32) incl. watchdog freezes, fault regs, running app name, crash-loop marker |
 | 4 | Task/stack/heap/mutex/service telemetry | **Partial** | Tracked per-app heap exists (extend to peak/quota); stock has a CLI heap/stack snapshot (`m1_mtest 5`) worth porting; no periodic health table, no mutex-wait instrumentation |
 | 5 | Exclusive SD ownership firmware vs MSC | **Audit needed** | Stock has the `usbmsc_sd_enable` gate but a verified race (card-detect task can remount during an active MSC session); M1OS's diverged `m1_sdcard.c` must be audited against the same race |
 | 6 | Fuzz ELF loader + manifest parser on host | **Done (first tranche)** | `m1_csrc/test/`: storage-umbrella + ELF-loader suites under ASan/UBSan, libFuzzer harness, CI workflow. Found and fixed a real heap OOB (§ below) |
 | 7 | Define service-dispatch ABI; stop direct exports | **In progress** | Spec in `SERVICE_ABI.md`; `m1_storage_call` shipped (API level 6, sandboxed, atomic writes); legacy 544-symbol surface declared closed |
-| 8 | Resource leases (ESP, Sub-GHz, NFC, IR, USB, display focus) | **Partial** | Display-focus lease shipped (m1_ui_focus + m1_ui_call, API level 7): grant at app start, idempotent revoke at exit, gated FLUSH/NOTIFY. Radio/NFC/IR/USB/SD leases remain; mtkcore's arbiter is the model |
+| 8 | Resource leases (ESP, Sub-GHz, NFC, IR, USB, display focus) | **Partial — 2 of N** | Display-focus lease (API level 7) + **ESP-channel operation lease**: 16 long-running radio ops (monitor/deauth/beacon/spam/karma/captive/softAP/ESP-NOW/HS/WiFi/ZB) registered on START, unregistered on STOP, and force-stopped via typed dispatch when the owning app task exits. Sub-GHz/NFC/IR/USB/SD leases remain; mtkcore's arbiter is the model |
 | 9 | Capture envelope + session directory schema | **Chassis exists in stock** | Stock capture stack (WiFi-only, `session_id` hardcoded `0xCA07`, no cross-radio envelope). Define the envelope, then port the chassis |
 | 10 | Signal Atlas reference app | **Blocked** | Depends on 7+8+9 landing; it becomes the first `.m1app` proving the platform |
 
@@ -238,6 +238,27 @@ the app runtime, menu engine, RPC stack, and tracked allocator.
    now defaults to Homebrew clang, whose LLVM runtime supports
    LeakSanitizer on darwin — local runs leak-gate like Linux CI (Apple
    clang does not).
+9. **ESP-channel operation lease** (1.1.83): the SPI mutex serializes RPCs
+   but nothing owned the *lifetime* of ops that run autonomously on the ESP
+   — an app could exit and leave deauth/monitor/spam/captive running. Every
+   long-running START now registers under the calling task; the matching
+   STOP unregisters; app exit revokes the lease and dispatches typed STOPs
+   (count logged). Re-start re-owns in place; table-full refuses new ops
+   (fail closed); re-entrant stops are no-ops. Pure registry host-tested.
+10. **Persistent crash records** (1.1.83): fault capture now also records
+   uptime and a consecutive-fault counter; boot snapshots the raw reset
+   flags before the watchdog task clears them; the first successful SD
+   mount writes a bounded, formatted record (fault regs or watchdog freeze,
+   reset cause, running app, CRASH_LOOP marker at >= 3) into a 32-slot ring
+   at `0:/System/crash/`. A watchdog freeze is now a concrete record, not
+   "it froze". Pure core (format + slot policy) host-tested.
+11. **Firmware cross-build restored on this Mac** (xPack arm-none-eabi GCC
+   14.2.1): full image builds clean, zero warnings in the new modules,
+   `wCRC` image at 1,047,616 B — note flash headroom is now < 2 KB against
+   the 1 MB bank crop; the reachability filter in app_api_gen is what keeps
+   this viable, and any size regression here should block release. The
+   artifact stem still says `M1OS_1.1.80.0` (hardcoded at CMakeLists:24 —
+   the M1-DOC-010-class naming gap, unfixed).
 
 ## 8. Compatibility matrix (software-verified rows)
 

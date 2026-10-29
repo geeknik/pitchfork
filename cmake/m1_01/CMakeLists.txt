@@ -642,6 +642,9 @@ set(M1_SRCS
     ../../m1_csrc/m1_app_storage.c
     ../../m1_csrc/m1_ui_focus.c
     ../../m1_csrc/m1_app_ui.c
+    ../../m1_csrc/m1_esp_lease.c
+    ../../m1_csrc/m1_crash.c
+    ../../m1_csrc/m1_crash_core.c
     ../../m1_csrc/m1_app_api.c
     ../../m1_csrc/m1_app_manager.c
     ../../m1_csrc/m1_field_detect.c
@@ -803,6 +806,9 @@ if(RECOVERY)
         ../../m1_csrc/m1_app_storage.c
         ../../m1_csrc/m1_ui_focus.c
         ../../m1_csrc/m1_app_ui.c
+        ../../m1_csrc/m1_esp_lease.c
+        ../../m1_csrc/m1_crash.c
+        ../../m1_csrc/m1_crash_core.c
         ../../m1_csrc/m1_app_api.c
         ../../m1_csrc/m1_app_manager.c
         # --- Menu / UI shells / file browser / settings ---

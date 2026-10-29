@@ -17,6 +17,7 @@
 #include "stm32h5xx_hal.h"
 #include "main.h"
 #include "m1_watchdog.h"
+#include "m1_crash.h"
 
 /*************************** D E F I N E S ************************************/
 
@@ -74,6 +75,11 @@ void m1_wdt_init(void)
 	 * This only has effect when the debug port is connected; in production
 	 * (no debugger attached), this bit is ignored by the hardware.
 	 */
+	/* Snapshot raw reset-status flags + any TAMP fault post-mortem before
+	 * the code below reads/clears them — m1_crash_persist_if_pending()
+	 * (first successful SD mount) turns them into 0:/System/crash records. */
+	m1_crash_boot_capture();
+
 #if defined(__HAL_DBGMCU_FREEZE_IWDG)
 	__HAL_DBGMCU_FREEZE_IWDG();
 #elif defined(DBGMCU_APB1FZR1_DBG_IWDG_STOP)

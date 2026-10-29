@@ -3,6 +3,7 @@
  * m1_esp_client.c — M1 -> ESP32-C6 operations over m1_link + m1_esp_rpc.
  */
 #include "m1_esp_client.h"
+#include "m1_esp_lease.h"   /* lifecycle lease for long-running radio ops */
 #include "m1_link.h"
 #include "m1_qmon_relay.h"
 #include "m1_log_debug.h"
@@ -153,14 +154,20 @@ bool m1_esp_client_now_start(uint8_t channel, const char *name, uint8_t mac_out[
         : 0;
     if (n < 7 || resp[0] != M1ESP_OK) return false;
     if (mac_out) memcpy(mac_out, &resp[1], 6);
-    return true;
+    bool ok_ = (true);
+    if (ok_)
+        m1_esp_lease_track(M1ESP_NOW_START);
+    return ok_;
 }
 
 bool m1_esp_client_now_stop(void)
 {
     uint8_t r[1];
     int n = esp_call(M1ESP_NOW_STOP, NULL, 0, r, sizeof(r));
-    return n >= 1 && r[0] == M1ESP_OK;
+    bool ok_ = (n >= 1 && r[0] == M1ESP_OK);
+    if (ok_)
+        m1_esp_lease_untrack(M1ESP_NOW_START);
+    return ok_;
 }
 
 bool m1_esp_client_now_announce(void)
@@ -234,14 +241,20 @@ bool m1_esp_client_zb_sniff_start(uint8_t channel)
     uint8_t resp[1] = { 0 };
     int n = esp_call_to(M1ESP_ZB_SNIFF_START, p, 1, resp, sizeof(resp),
                         ESP_ZB_START_TIMEOUT_MS);
-    return (n >= 1) && (resp[0] == M1ESP_OK);
+    bool ok_ = ((n >= 1) && (resp[0] == M1ESP_OK));
+    if (ok_)
+        m1_esp_lease_track(M1ESP_ZB_SNIFF_START);
+    return ok_;
 }
 
 bool m1_esp_client_zb_sniff_stop(void)
 {
     uint8_t resp[1] = { 0 };
     int n = esp_call_to(M1ESP_ZB_SNIFF_STOP, NULL, 0, resp, sizeof(resp), 2000u);
-    return (n >= 1) && (resp[0] == M1ESP_OK);
+    bool ok_ = ((n >= 1) && (resp[0] == M1ESP_OK));
+    if (ok_)
+        m1_esp_lease_untrack(M1ESP_ZB_SNIFF_START);
+    return ok_;
 }
 
 /* 802.15.4 beacon-request flood. channel 0 = sweep 11-26, else dwell it. */
@@ -251,14 +264,20 @@ bool m1_esp_client_zb_flood_start(uint8_t channel)
     uint8_t resp[1] = { 0 };
     int n = esp_call_to(M1ESP_ZB_FLOOD_START, p, 1, resp, sizeof(resp),
                         ESP_ZB_START_TIMEOUT_MS);
-    return (n >= 1) && (resp[0] == M1ESP_OK);
+    bool ok_ = ((n >= 1) && (resp[0] == M1ESP_OK));
+    if (ok_)
+        m1_esp_lease_track(M1ESP_ZB_FLOOD_START);
+    return ok_;
 }
 
 bool m1_esp_client_zb_flood_stop(void)
 {
     uint8_t resp[1] = { 0 };
     int n = esp_call_to(M1ESP_ZB_FLOOD_STOP, NULL, 0, resp, sizeof(resp), 2000u);
-    return (n >= 1) && (resp[0] == M1ESP_OK);
+    bool ok_ = ((n >= 1) && (resp[0] == M1ESP_OK));
+    if (ok_)
+        m1_esp_lease_untrack(M1ESP_ZB_FLOOD_START);
+    return ok_;
 }
 
 /* Fills buf with [u8 count][m1esp_zb_device_t x count]. Returns bytes, <0 err. */
@@ -338,7 +357,10 @@ bool m1_esp_client_wifi_connect(const char *ssid, const char *pwd, uint8_t ip_ou
         }
     }
     s_wifi_connected = false;
-    return false;
+    bool ok_ = (false);
+    if (ok_)
+        m1_esp_lease_track(M1ESP_WIFI_CONNECT);
+    return ok_;
 }
 
 bool m1_esp_client_wifi_disconnect(void)
@@ -347,7 +369,10 @@ bool m1_esp_client_wifi_disconnect(void)
     s_wifi_ssid[0] = '\0';
     uint8_t resp[1] = { 0 };
     int n = esp_call(M1ESP_WIFI_DISCONNECT, NULL, 0, resp, sizeof(resp));
-    return (n >= 1) && (resp[0] == M1ESP_OK);
+    bool ok_ = ((n >= 1) && (resp[0] == M1ESP_OK));
+    if (ok_)
+        m1_esp_lease_untrack(M1ESP_WIFI_CONNECT);
+    return ok_;
 }
 
 bool m1_esp_client_wifi_status(uint8_t *connected, uint8_t ip_out[4])
@@ -375,14 +400,20 @@ bool m1_esp_client_deauth_start(const uint8_t bssid[6], uint8_t channel,
     uint8_t resp[1] = { 0 };
     int n = esp_call(M1ESP_OFF_DEAUTH_START, (const uint8_t *)&req, sizeof(req),
                      resp, sizeof(resp));
-    return (n >= 1) && (resp[0] == M1ESP_OK);
+    bool ok_ = ((n >= 1) && (resp[0] == M1ESP_OK));
+    if (ok_)
+        m1_esp_lease_track(M1ESP_OFF_DEAUTH_START);
+    return ok_;
 }
 
 bool m1_esp_client_deauth_stop(void)
 {
     uint8_t resp[1] = { 0 };
     int n = esp_call(M1ESP_OFF_DEAUTH_STOP, NULL, 0, resp, sizeof(resp));
-    return (n >= 1) && (resp[0] == M1ESP_OK);
+    bool ok_ = ((n >= 1) && (resp[0] == M1ESP_OK));
+    if (ok_)
+        m1_esp_lease_untrack(M1ESP_OFF_DEAUTH_START);
+    return ok_;
 }
 
 int m1_esp_client_ble_scan(uint8_t *buf, uint16_t buf_size, uint8_t duration_sec)
@@ -407,14 +438,20 @@ bool m1_esp_client_beacon_start(const char ssids[][33], uint8_t count)
     }
     uint8_t resp[1] = { 0 };
     int n = esp_call(M1ESP_OFF_BEACON_START, payload, off, resp, sizeof(resp));
-    return (n >= 1) && (resp[0] == M1ESP_OK);
+    bool ok_ = ((n >= 1) && (resp[0] == M1ESP_OK));
+    if (ok_)
+        m1_esp_lease_track(M1ESP_OFF_BEACON_START);
+    return ok_;
 }
 
 bool m1_esp_client_beacon_stop(void)
 {
     uint8_t resp[1] = { 0 };
     int n = esp_call(M1ESP_OFF_BEACON_STOP, NULL, 0, resp, sizeof(resp));
-    return (n >= 1) && (resp[0] == M1ESP_OK);
+    bool ok_ = ((n >= 1) && (resp[0] == M1ESP_OK));
+    if (ok_)
+        m1_esp_lease_untrack(M1ESP_OFF_BEACON_START);
+    return ok_;
 }
 
 /* Probe-request flood. Payload: [channel:1][count:1] then [len:1][ssid] x count.
@@ -435,14 +472,20 @@ bool m1_esp_client_probe_start(uint8_t channel, const char ssids[][33], uint8_t 
     }
     uint8_t resp[1] = { 0 };
     int r = esp_call(M1ESP_OFF_PROBE_START, payload, off, resp, sizeof(resp));
-    return (r >= 1) && (resp[0] == M1ESP_OK);
+    bool ok_ = ((r >= 1) && (resp[0] == M1ESP_OK));
+    if (ok_)
+        m1_esp_lease_track(M1ESP_OFF_PROBE_START);
+    return ok_;
 }
 
 bool m1_esp_client_probe_stop(void)
 {
     uint8_t resp[1] = { 0 };
     int n = esp_call(M1ESP_OFF_PROBE_STOP, NULL, 0, resp, sizeof(resp));
-    return (n >= 1) && (resp[0] == M1ESP_OK);
+    bool ok_ = ((n >= 1) && (resp[0] == M1ESP_OK));
+    if (ok_)
+        m1_esp_lease_untrack(M1ESP_OFF_PROBE_START);
+    return ok_;
 }
 
 /* Karma probe-response auto-responder on `channel`. */
@@ -451,14 +494,20 @@ bool m1_esp_client_karma_start(uint8_t channel)
     uint8_t p[1] = { channel };
     uint8_t resp[1] = { 0 };
     int n = esp_call(M1ESP_OFF_KARMA_START, p, 1, resp, sizeof(resp));
-    return (n >= 1) && (resp[0] == M1ESP_OK);
+    bool ok_ = ((n >= 1) && (resp[0] == M1ESP_OK));
+    if (ok_)
+        m1_esp_lease_track(M1ESP_OFF_KARMA_START);
+    return ok_;
 }
 
 bool m1_esp_client_karma_stop(void)
 {
     uint8_t resp[1] = { 0 };
     int n = esp_call(M1ESP_OFF_KARMA_STOP, NULL, 0, resp, sizeof(resp));
-    return (n >= 1) && (resp[0] == M1ESP_OK);
+    bool ok_ = ((n >= 1) && (resp[0] == M1ESP_OK));
+    if (ok_)
+        m1_esp_lease_untrack(M1ESP_OFF_KARMA_START);
+    return ok_;
 }
 
 /* ---- Packet Monitor (promiscuous sniffer, runs on the ESP) ---- */
@@ -474,14 +523,20 @@ int m1_esp_client_monitor_start(uint8_t channel)   /* channel 0 = hop 1-13 */
     if (n < 4) return -1000;           /* no/short response = link timeout */
     int32_t err;
     memcpy(&err, resp, 4);
-    return (int)err;
+    int rc_ = ((int)err);
+    if (rc_ == 0)
+        m1_esp_lease_track(M1ESP_OFF_MONITOR_START);
+    return rc_;
 }
 
 bool m1_esp_client_monitor_stop(void)
 {
     uint8_t resp[1] = { 0 };
     int n = esp_call(M1ESP_OFF_MONITOR_STOP, NULL, 0, resp, sizeof(resp));
-    return (n >= 1) && (resp[0] == M1ESP_OK);
+    bool ok_ = ((n >= 1) && (resp[0] == M1ESP_OK));
+    if (ok_)
+        m1_esp_lease_untrack(M1ESP_OFF_MONITOR_START);
+    return ok_;
 }
 
 bool m1_esp_client_monitor_stats(uint32_t *total, uint32_t *dropped, uint8_t *buffered)
@@ -533,14 +588,20 @@ int m1_esp_client_captive_start(const char *ssid, const char *title, uint8_t cha
     if (n < 4) return -1000;
     int32_t err;
     memcpy(&err, resp, 4);
-    return (int)err;
+    int rc_ = ((int)err);
+    if (rc_ == 0)
+        m1_esp_lease_track(M1ESP_OFF_CAPTIVE_START);
+    return rc_;
 }
 
 bool m1_esp_client_captive_stop(void)
 {
     uint8_t resp[1] = { 0 };
     int n = esp_call(M1ESP_OFF_CAPTIVE_STOP, NULL, 0, resp, sizeof(resp));
-    return (n >= 1) && (resp[0] == M1ESP_OK);
+    bool ok_ = ((n >= 1) && (resp[0] == M1ESP_OK));
+    if (ok_)
+        m1_esp_lease_untrack(M1ESP_OFF_CAPTIVE_START);
+    return ok_;
 }
 
 /* Fetch captured credentials as raw bytes:
@@ -580,7 +641,10 @@ bool m1_esp_client_hs_start(const uint8_t bssid[6], uint8_t channel, uint16_t de
     req[8] = (uint8_t)(deauth_count >> 8);
     uint8_t resp[1] = { 0 };
     int n = esp_call(M1ESP_OFF_HS_START, req, sizeof(req), resp, sizeof(resp));
-    return (n >= 1) && (resp[0] == M1ESP_OK);
+    bool ok_ = ((n >= 1) && (resp[0] == M1ESP_OK));
+    if (ok_)
+        m1_esp_lease_track(M1ESP_OFF_HS_START);
+    return ok_;
 }
 
 bool m1_esp_client_hs_status(uint8_t *state, uint32_t *total_len)
@@ -606,7 +670,10 @@ bool m1_esp_client_hs_stop(void)
 {
     uint8_t resp[1] = { 0 };
     int n = esp_call(M1ESP_OFF_HS_STOP, NULL, 0, resp, sizeof(resp));
-    return (n >= 1) && (resp[0] == M1ESP_OK);
+    bool ok_ = ((n >= 1) && (resp[0] == M1ESP_OK));
+    if (ok_)
+        m1_esp_lease_untrack(M1ESP_OFF_HS_START);
+    return ok_;
 }
 
 int m1_esp_client_sta_scan(const uint8_t bssid[6], uint8_t channel, uint8_t duration_sec,
@@ -651,14 +718,20 @@ bool m1_esp_client_ble_spam_start(uint8_t mode)
     uint8_t p[1] = { mode };
     uint8_t resp[1] = { 0 };
     int n = esp_call(M1ESP_BLE_SPAM_START, p, 1, resp, sizeof(resp));
-    return (n >= 1) && (resp[0] == M1ESP_OK);
+    bool ok_ = ((n >= 1) && (resp[0] == M1ESP_OK));
+    if (ok_)
+        m1_esp_lease_track(M1ESP_BLE_SPAM_START);
+    return ok_;
 }
 
 bool m1_esp_client_ble_spam_stop(void)
 {
     uint8_t resp[1] = { 0 };
     int n = esp_call(M1ESP_BLE_SPAM_STOP, NULL, 0, resp, sizeof(resp));
-    return (n >= 1) && (resp[0] == M1ESP_OK);
+    bool ok_ = ((n >= 1) && (resp[0] == M1ESP_OK));
+    if (ok_)
+        m1_esp_lease_untrack(M1ESP_BLE_SPAM_START);
+    return ok_;
 }
 
 /* BLE beacon emulator — iBeacon. Payload [0][uuid:16][major:2 LE][minor:2 LE][tx:i8]. */
@@ -673,7 +746,10 @@ bool m1_esp_client_ble_beacon_ibeacon(const uint8_t uuid[16], uint16_t major,
     p[21] = (uint8_t)tx_power;
     uint8_t resp[1] = { 0 };
     int n = esp_call(M1ESP_BLE_BEACON_START, p, sizeof(p), resp, sizeof(resp));
-    return (n >= 1) && (resp[0] == M1ESP_OK);
+    bool ok_ = ((n >= 1) && (resp[0] == M1ESP_OK));
+    if (ok_)
+        m1_esp_lease_track(M1ESP_BLE_BEACON_START);
+    return ok_;
 }
 
 /* BLE beacon emulator — Eddystone-URL. Payload [1][url bytes]. */
@@ -686,14 +762,20 @@ bool m1_esp_client_ble_beacon_eddystone(const char *url)
     memcpy(&p[1], url, ul);
     uint8_t resp[1] = { 0 };
     int n = esp_call(M1ESP_BLE_BEACON_START, p, (uint16_t)(1 + ul), resp, sizeof(resp));
-    return (n >= 1) && (resp[0] == M1ESP_OK);
+    bool ok_ = ((n >= 1) && (resp[0] == M1ESP_OK));
+    if (ok_)
+        m1_esp_lease_track(M1ESP_BLE_BEACON_START);
+    return ok_;
 }
 
 bool m1_esp_client_ble_beacon_stop(void)
 {
     uint8_t resp[1] = { 0 };
     int n = esp_call(M1ESP_BLE_BEACON_STOP, NULL, 0, resp, sizeof(resp));
-    return (n >= 1) && (resp[0] == M1ESP_OK);
+    bool ok_ = ((n >= 1) && (resp[0] == M1ESP_OK));
+    if (ok_)
+        m1_esp_lease_untrack(M1ESP_BLE_BEACON_START);
+    return ok_;
 }
 
 /* WiFi Hotspot (SoftAP): bring up a real AP the phone can join (no router).
@@ -711,14 +793,20 @@ bool m1_esp_client_softap_start(const char *ssid, const char *pass, uint8_t chan
 
     uint8_t resp[1] = { 0 };
     int n = esp_call(M1ESP_SOFTAP_START, p, o, resp, sizeof(resp));
-    return (n >= 1) && (resp[0] == M1ESP_OK);
+    int rc_ = ((n >= 1) && (resp[0] == M1ESP_OK));
+    if (rc_ == 0)
+        m1_esp_lease_track(M1ESP_SOFTAP_START);
+    return rc_;
 }
 
 bool m1_esp_client_softap_stop(void)
 {
     uint8_t resp[1] = { 0 };
     int n = esp_call(M1ESP_SOFTAP_STOP, NULL, 0, resp, sizeof(resp));
-    return (n >= 1) && (resp[0] == M1ESP_OK);
+    bool ok_ = ((n >= 1) && (resp[0] == M1ESP_OK));
+    if (ok_)
+        m1_esp_lease_untrack(M1ESP_SOFTAP_START);
+    return ok_;
 }
 
 /* Number of stations currently joined to the hotspot. */
@@ -778,7 +866,10 @@ bool m1_esp_client_ble_hid_init(const char *name)
     uint8_t nl = (uint8_t)strnlen(name ? name : "", 31);
     uint8_t resp[1] = { 0 };
     int n = esp_call(M1ESP_BLE_HID_INIT, (const uint8_t *)name, nl, resp, sizeof(resp));
-    return (n >= 1) && (resp[0] == M1ESP_OK);
+    bool ok_ = ((n >= 1) && (resp[0] == M1ESP_OK));
+    if (ok_)
+        m1_esp_lease_track(M1ESP_BLE_HID_INIT);
+    return ok_;
 }
 
 bool m1_esp_client_ble_hid_deinit(void)
@@ -789,7 +880,10 @@ bool m1_esp_client_ble_hid_deinit(void)
      * request; returning early lets the next BLE app collide with the stale
      * connection. */
     int n = esp_call_to(M1ESP_BLE_HID_DEINIT, NULL, 0, resp, sizeof(resp), 2200);
-    return (n >= 1) && (resp[0] == M1ESP_OK);
+    bool ok_ = ((n >= 1) && (resp[0] == M1ESP_OK));
+    if (ok_)
+        m1_esp_lease_untrack(M1ESP_BLE_HID_INIT);
+    return ok_;
 }
 
 bool m1_esp_client_ble_hid_status(uint8_t *connected)
@@ -842,4 +936,29 @@ bool m1_esp_client_screen_push(const uint8_t *fb, uint16_t len)
     int n = esp_call_to(M1ESP_SCREEN_PUSH, fb, len, resp, sizeof(resp),
                         SCREEN_PUSH_TIMEOUT_MS);
     return (n >= 1) && (resp[0] == M1ESP_OK);
+}
+
+/* m1_esp_lease teardown dispatch: the typed STOP RPC for each leased opcode
+ * (see m1_esp_lease.h). Called by m1_esp_lease_revoke when an app task goes
+ * away with radio ops still running. */
+void m1_esp_lease_stop_op(uint16_t op)
+{
+    switch (op) {
+    case M1ESP_OFF_DEAUTH_START:  m1_esp_client_deauth_stop();     return;
+    case M1ESP_OFF_BEACON_START:  m1_esp_client_beacon_stop();     return;
+    case M1ESP_OFF_PROBE_START:   m1_esp_client_probe_stop();      return;
+    case M1ESP_OFF_KARMA_START:   m1_esp_client_karma_stop();      return;
+    case M1ESP_OFF_MONITOR_START: m1_esp_client_monitor_stop();    return;
+    case M1ESP_OFF_CAPTIVE_START: m1_esp_client_captive_stop();    return;
+    case M1ESP_ZB_SNIFF_START:    m1_esp_client_zb_sniff_stop();   return;
+    case M1ESP_ZB_FLOOD_START:    m1_esp_client_zb_flood_stop();   return;
+    case M1ESP_SOFTAP_START:      m1_esp_client_softap_stop();     return;
+    case M1ESP_NOW_START:         m1_esp_client_now_stop();        return;
+    case M1ESP_BLE_SPAM_START:    m1_esp_client_ble_spam_stop();   return;
+    case M1ESP_BLE_HID_INIT:      m1_esp_client_ble_hid_deinit();  return;
+    case M1ESP_BLE_BEACON_START:  m1_esp_client_ble_beacon_stop(); return;
+    case M1ESP_OFF_HS_START:      m1_esp_client_hs_stop();         return;
+    case M1ESP_WIFI_CONNECT:      m1_esp_client_wifi_disconnect(); return;
+    default: return;
+    }
 }

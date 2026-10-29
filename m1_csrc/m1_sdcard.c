@@ -22,6 +22,7 @@
 #include "app_freertos.h"
 #include "cmsis_os.h"
 #include "m1_sdcard.h"
+#include "m1_crash.h"
 
 /*************************** D E F I N E S ************************************/
 
@@ -692,6 +693,13 @@ void m1_sdcard_mount(void)
 	} // else
 	sdcard_ctl.timestamp = HAL_GetTick();
 	M1_LOG_I(M1_LOGDB_TAG, "Mounting result: f_mount:%d %s\r\n", sd_fres, m1_sd_error_msg(sdcard_ctl.status));
+
+	if (sdcard_ctl.status == SD_access_OK)
+	{
+		/* First good mount after a fault/watchdog reset: write the pending
+		 * crash record (idempotent — TAMP magic is cleared on success). */
+		m1_crash_persist_if_pending();
+	}
 } // void m1_sdcard_mount(void)
 
 

@@ -141,6 +141,8 @@ __attribute__((used)) void m1_fault_capture(uint32_t *frame)
 	TAMP->BKP5R = cfsr;
 	TAMP->BKP6R = bfar;
 	TAMP->BKP7R = hfsr;
+	TAMP->BKP13R = HAL_GetTick();          /* uptime at fault (m1_crash.c) */
+	TAMP->BKP14R = TAMP->BKP14R + 1;      /* consecutive faults w/o clean boot */
 
 	for (volatile int i = 0; i < 4000; i++) { __NOP(); }  /* let writes settle */
 	NVIC_SystemReset();

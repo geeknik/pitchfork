@@ -2,3 +2,8 @@
 test-storage
 test-elf
 fuzz-elf
+
+# more host-test binaries
+test-lease
+test-crash
+*.dSYM/

@@ -19,9 +19,9 @@ STUB_SRC = host_stubs/host_stubs.c
 STO_SRC = ../m1_app_storage.c
 ELF_SRC = ../m1_elf_loader.c
 
-.PHONY: test test-storage test-elf test-ui fuzz-elf clean
+.PHONY: test test-storage test-elf test-ui test-lease test-crash fuzz-elf clean
 
-test: test-storage test-elf test-ui
+test: test-storage test-elf test-ui test-lease test-crash
 
 test-storage: test_m1_app_storage.c $(STO_SRC) host_stubs/ff.h
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_m1_app_storage.c $(STO_SRC) $(STUB_SRC)
@@ -35,6 +35,14 @@ test-ui: test_m1_ui.c ../m1_app_ui.c ../m1_ui_focus.c host_stubs/ff.h
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_m1_ui.c ../m1_app_ui.c ../m1_ui_focus.c $(STUB_SRC)
 	./$@
 
+test-lease: test_m1_esp_lease.c ../m1_esp_lease.c
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_m1_esp_lease.c ../m1_esp_lease.c $(STUB_SRC)
+	./$@
+
+test-crash: test_m1_crash.c ../m1_crash_core.c
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_m1_crash.c ../m1_crash_core.c $(STUB_SRC)
+	./$@
+
 fuzz-elf: fuzz_m1_elf_loader.c $(ELF_SRC) host_stubs/ff.h
 	@command -v clang >/dev/null 2>&1 || { echo "clang not found (libFuzzer needs it)"; exit 1; }
 	clang -std=c11 -O1 -g -fsanitize=fuzzer,address,undefined $(INCLUDES) \
@@ -43,4 +51,4 @@ fuzz-elf: fuzz_m1_elf_loader.c $(ELF_SRC) host_stubs/ff.h
 FUZZ_ARGS ?= -max_total_time=15 -max_len=8192
 
 clean:
-	rm -f test-storage test-elf test-ui fuzz-elf
+	rm -f test-storage test-elf test-ui test-lease test-crash fuzz-elf

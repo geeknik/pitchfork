@@ -25,6 +25,8 @@
 #include "main.h"
 #include "m1_app_manager.h"
 #include "m1_ui_focus.h"
+#include "m1_esp_lease.h"
+#include "m1_crash.h"
 #include "m1_elf_loader.h"
 #include "m1_app_api.h"
 #include "m1_system.h"
@@ -667,6 +669,10 @@ static void app_task_wrapper(void *param)
     if (!m1_ui_focus_try_grant((void *)xTaskGetCurrentTaskHandle()))
         M1_LOG_E(TAG, "display focus already held at app start (leaked?)");
 
+    /* Name the running app in the crash record (first 8 chars, TAMP
+     * BKP15/16R) so a fault during this app is attributable. */
+    m1_crash_note_app(ctx->elf.manifest.name);
+
     /* Call the app's main function */
     int32_t result = entry(NULL);
 
@@ -678,6 +684,15 @@ static void app_task_wrapper(void *param)
     /* Give the display back before waking the menu (idempotent: only the
      * owner can revoke, and this task is the owner). */
     (void)m1_ui_focus_revoke((void *)xTaskGetCurrentTaskHandle());
+
+    /* ESP-channel lease teardown: stop anything this app left running on the
+     * radio (monitor/deauth/beacon/spam/captive/...). Each stop is a bounded
+     * RPC under the client mutex; the count lands in the log. */
+    int stopped = m1_esp_lease_revoke((void *)xTaskGetCurrentTaskHandle());
+    if (stopped > 0)
+        M1_LOG_W(TAG, "ESP lease teardown: stopped %d runaway op(s)", stopped);
+
+    m1_crash_note_app(NULL);
 
     /* Notify the caller task */
     if (ctx->caller_handle != NULL)
