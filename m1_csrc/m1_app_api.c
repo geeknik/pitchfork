@@ -402,6 +402,7 @@ void m1_app_api_init(void)
 
         /* ===== Grouped syscall umbrellas (see m1_app_syscall.h) ===== */
         { "m1_sys_call",       (void *)m1_sys_call },
+        { "m1_storage_call",   (void *)m1_storage_call },   /* m1_app_storage.c */
 
         /* ===== Input ===== */
         { "game_poll_button",  (void *)game_poll_button },

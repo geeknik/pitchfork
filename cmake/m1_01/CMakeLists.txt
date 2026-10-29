@@ -639,6 +639,7 @@ set(M1_SRCS
     ../../m1_csrc/game_peer_ttt.c
     # === Enhanced firmware: ELF App Loader (Phase 10) ===
     ../../m1_csrc/m1_elf_loader.c
+    ../../m1_csrc/m1_app_storage.c
     ../../m1_csrc/m1_app_api.c
     ../../m1_csrc/m1_app_manager.c
     ../../m1_csrc/m1_field_detect.c
@@ -797,6 +798,7 @@ if(RECOVERY)
         ../../m1_csrc/game_tamagotchi.c
         ../../m1_csrc/game_peer_ttt.c
         ../../m1_csrc/m1_elf_loader.c
+        ../../m1_csrc/m1_app_storage.c
         ../../m1_csrc/m1_app_api.c
         ../../m1_csrc/m1_app_manager.c
         # --- Menu / UI shells / file browser / settings ---
