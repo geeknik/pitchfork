@@ -14,9 +14,22 @@
 
 static node_t *g_root;
 
+static void free_tree(node_t *n)
+{
+    while (n) {
+        node_t *next = n->sibling;
+        free_tree(n->child);
+        free(n->data);
+        free(n);
+        n = next;
+    }
+}
+
 void hostff_reset(void)
 {
-    /* leak intentionally: process-lifetime test tree */
+    /* Free the previous tree: Linux LeakSanitizer (run under the fuzzer in
+     * CI) tracks every abandoned node, and the harness resets per input. */
+    free_tree(g_root);
     g_root = calloc(1, sizeof(node_t));
     g_root->is_dir = true;
     strcpy(g_root->name, "/");
@@ -260,6 +273,8 @@ FRESULT f_unlink(const TCHAR *path)
     while (*pp != n)
         pp = &(*pp)->sibling;
     *pp = n->sibling;
+    n->sibling = NULL;
+    free_tree(n);
     return FR_OK;
 }
 
