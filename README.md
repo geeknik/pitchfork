@@ -16,21 +16,25 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full design.
 
 ## Status
 
-**Phase 0 — fork.** This repository is seeded from the fully-bundled
-`m1-firmware` at `v0.8.0.0-C3.148` and is currently **byte-identical** to that
-baseline (a known-good build). No firmware behavior has changed yet — the build
-still reports the C3 line it was forked from.
+**Active runtime, 1.1-series.** Current version **1.1.80.0**. M1OS was seeded
+from the fully-bundled `m1-firmware` at `v0.8.0.0-C3.148` (2026-07-28) and has
+since diverged deliberately: it ships the `.m1app` ELF app runtime (API level
+5, 544 exported symbols), user-customizable SD-driven menus, an RPC stack with
+app install/list over USB and WiFi, and built-in features moved out to apps.
 
-The first Phase-1 task is the versioning-scheme conversion described below,
-followed by the app-ABI foundation.
+The authoritative statement of current state, repository relationships, and
+the roadmap toward the session-oriented protocol-laboratory architecture is
+[`STATUS.md`](STATUS.md) — it supersedes any older phase/version claims here
+and in `ARCHITECTURE.md`, `CHANGELOG.md`, and `COMPATIBILITY.md`.
 
 ## Relationship to the classic firmware
 
 M1OS and `m1-firmware` are **two living products**, developed side by side:
 
 - [`m1-firmware`](https://github.com/bedge117/M1) (`v0.8.0.0-C3.N`) — the
-  fully-bundled firmware, unchanged. Its feature set (Sub-GHz, NFC, RFID, IR,
-  BadUSB, WiFi/BT, games) is the pool M1OS draws from as apps.
+  fully-bundled firmware, the pool M1OS draws from as apps. (Note: the stock
+  MonstaTek line has moved on to 0.8.1.0 with fixes M1OS has not absorbed —
+  see [`STATUS.md`](STATUS.md) §6 for the porting pool.)
 - **M1OS** (`n.n.n.n`) — this modular app runtime.
 
 They share one ESP32-C6 brain firmware and one app SDK
