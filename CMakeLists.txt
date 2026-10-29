@@ -101,6 +101,19 @@ if(NOT RECOVERY)
         VERBATIM
     )
     add_dependencies(${CMAKE_PROJECT_NAME} gen_app_api)
+
+    # Wire-contract parity gate: m1_csrc/m1_esp_rpc.h is a sed-copy of brain's
+    # canonical m1_rpc.h (see that header's line 1). The two repos build
+    # separately, so without this check an edit on either side silently
+    # desyncs the SPI link contract. --optional: skips (not fails) when the
+    # sibling m1-esp32-brain checkout is absent; CI runs it strictly.
+    add_custom_target(check_esp_contract
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/check_esp_contract.py --optional
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Checking ESP wire-contract parity (check_esp_contract.py)"
+        VERBATIM
+    )
+    add_dependencies(${CMAKE_PROJECT_NAME} check_esp_contract)
 endif()
 
 # Link directories setup

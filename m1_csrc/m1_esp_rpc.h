@@ -1,13 +1,13 @@
-/* m1_esp_rpc: namespace-renamed copy of canonical m1_rpc (m1esp_/M1ESP_). Regenerate via sed. */
+/* m1_esp_rpc: namespace-renamed copy of canonical m1_rpc (m1esp_/M1ESP_). Regenerate via sed. Checked by tools/check_esp_contract.py. */
 /*
- * m1esp.h -- Unified M1 <-> ESP32-C6 binary RPC protocol (canonical shared header)
+ * m1esp.h — Unified M1 <-> ESP32-C6 binary RPC protocol (canonical shared header)
  *
  * Include this SAME file on both sides:
  *   - STM32H573 host  (m1-experimental-firmware/Core/Inc/m1esp.h)
  *   - ESP32-C6 slave  (esp32-experimental-firmware/components/m1esp/include/m1esp.h)
  *
  * ============================================================================
- * TRANSPORT (read this -- it is the #1 thing that was wrong before)
+ * TRANSPORT (read this — it is the #1 thing that was wrong before)
  * ============================================================================
  *   STM32H573 = SPI **MASTER**.   ESP32-C6 = SPI **SLAVE** (esp spi_slave_hd).
  *
@@ -15,11 +15,11 @@
  *   protocol (command/address/dummy phases + a status register + RD/WR data
  *   buffers). The ESP32 asserts a HANDSHAKE / DATA_READY GPIO to tell the
  *   master when it has data to move or is ready for a transfer. The frames
- *   defined in THIS header are the bytes carried *inside* the HD data buffers --
+ *   defined in THIS header are the bytes carried *inside* the HD data buffers —
  *   the SPI-HD transport itself is unchanged from the stock AT firmware.
  *
  *   NOTE: the previous experimental STM32 side (spi_slave.c, SPI_MODE_SLAVE)
- *   was configured as a slave -- WRONG. Both ends were slaves, so no clock was
+ *   was configured as a slave — WRONG. Both ends were slaves, so no clock was
  *   ever generated. The host must be the master (reuse the stock M1 Esp_spi_at
  *   master driver). The ESP32 spi_link.c (spi_slave_hd) side is correct as-is.
  *
@@ -30,7 +30,7 @@
  *   See: Reference Guides/kb/refs/PROTOCOL_COMPARISON.md
  *
  * All multi-byte integers are LITTLE-ENDIAN (native for both Cortex-M33 and
- * RISC-V, so packed structs map directly -- but do not assume it, we state it).
+ * RISC-V, so packed structs map directly — but do not assume it, we state it).
  */
 
 #ifndef M1ESP_H
@@ -124,7 +124,7 @@ typedef enum {
     M1ESP_SYS_OTA_BEGIN       = 0x0006, /* REQ  u32 img_size -> RESP u8 status */
     M1ESP_SYS_OTA_DATA        = 0x0007, /* REQ  u8[] data    -> RESP u8 status */
     M1ESP_SYS_OTA_END         = 0x0008, /* REQ  u8 reboot    -> RESP u8 status */
-    M1ESP_SYS_SNTP_SYNC       = 0x0009, /* REQ  (none, WiFi must be up) -> RESP m1esp_time_t (or NAK) */
+    M1ESP_SYS_SNTP_SYNC       = 0x0009, /* REQ  (none, WiFi up) -> RESP m1esp_time_t (or NAK) */
 
     /* ---- WiFi station 0x0100-0x01FF ---- */
     M1ESP_WIFI_GET_MODE       = 0x0100,
@@ -141,7 +141,7 @@ typedef enum {
     M1ESP_SOFTAP_STA_LIST     = 0x0202,
 
     /* ---- Offensive WiFi 0x0300-0x03FF ---- */
-    M1ESP_OFF_MONITOR_START   = 0x0300, /* REQ u8 channel (0 = hop 1-13), u8 band */
+    M1ESP_OFF_MONITOR_START   = 0x0300, /* REQ u8 channel, u8 band */
     M1ESP_OFF_MONITOR_STOP    = 0x0301,
     M1ESP_OFF_DEAUTH_START    = 0x0302, /* REQ deauth_req */
     M1ESP_OFF_DEAUTH_STOP     = 0x0303,
@@ -155,15 +155,15 @@ typedef enum {
     M1ESP_OFF_HANDSHAKE_CAP   = 0x030B, /* REQ hscap_req */
     M1ESP_OFF_RAW_TX          = 0x030C,
     M1ESP_OFF_DEAUTH_STATUS   = 0x030D, /* RESP u32 sent, u8 running */
-    M1ESP_OFF_STA_SCAN_START  = 0x030E, /* REQ [bssid:6][channel:1][dur:1] -- find STAs on an AP */
+    M1ESP_OFF_STA_SCAN_START  = 0x030E, /* REQ [bssid:6][channel:1][dur:1] — find STAs on an AP */
     M1ESP_OFF_STA_SCAN_RESULTS= 0x030F, /* RESP [count:2][per sta: mac:6, rssi:i8] */
-    M1ESP_OFF_HS_START        = 0x0310, /* REQ [bssid:6][channel:1][deauth_count:2] -- start EAPOL capture */
-    M1ESP_OFF_HS_STATUS       = 0x0311, /* RESP [state:1][total_len:4] -- 0=idle,1=capturing,2=complete */
+    M1ESP_OFF_HS_START        = 0x0310, /* REQ [bssid:6][channel:1][deauth_count:2] — start EAPOL capture */
+    M1ESP_OFF_HS_STATUS       = 0x0311, /* RESP [state:1][total_len:4] — 0=idle,1=capturing,2=complete */
     M1ESP_OFF_HS_GET          = 0x0312, /* REQ [offset:4][len:2] -> RESP raw .pcap bytes (chunked) */
     M1ESP_OFF_HS_STOP         = 0x0313,
     M1ESP_OFF_MONITOR_STATS   = 0x0314, /* RESP [total:4][dropped:4][buffered:1] */
     M1ESP_OFF_MONITOR_READ    = 0x0315, /* RESP one frame [ch:1][rssi:i8][len:2][frame] or empty */
-    M1ESP_OFF_CAPTIVE_START   = 0x0316, /* REQ [channel:1][ssid_len:1][ssid][title] -- rogue AP portal */
+    M1ESP_OFF_CAPTIVE_START   = 0x0316, /* REQ [channel:1][ssid_len:1][ssid][title] — rogue AP portal */
     M1ESP_OFF_CAPTIVE_STOP    = 0x0317,
     M1ESP_OFF_CAPTIVE_CREDS   = 0x0318, /* RESP [count:1] then per cred [ts:4][ulen:1][u][plen:1][p] */
     M1ESP_OFF_CAPTIVE_DIAG    = 0x0319, /* RESP [dns_q:4][http_hits:4][clients:1] */
@@ -176,17 +176,17 @@ typedef enum {
     M1ESP_BLE_ADV_STOP        = 0x0404,
     M1ESP_BLE_HID_INIT        = 0x0405,
     M1ESP_BLE_HID_KEY         = 0x0406, /* REQ hid_keypress */
-    M1ESP_BLE_HID_STRING      = 0x0407, /* REQ u8[] utf8 -- ESP types autonomously */
-    M1ESP_BLE_HID_SCRIPT      = 0x0408, /* REQ Bad-BT script blob -- ESP runs it */
+    M1ESP_BLE_HID_STRING      = 0x0407, /* REQ u8[] utf8 — ESP types autonomously */
+    M1ESP_BLE_HID_SCRIPT      = 0x0408, /* REQ Bad-BT script blob — ESP runs it */
     M1ESP_BLE_CONNECT         = 0x0409,
     M1ESP_BLE_DISCONNECT      = 0x040A,
     M1ESP_BLE_HID_DEINIT      = 0x040B, /* stop advertising / tear down HID */
     M1ESP_BLE_HID_STATUS      = 0x040C, /* REQ -> RESP u8 connected */
     M1ESP_BLE_SPAM_START      = 0x040D, /* REQ u8 mode -> RESP u8 status (adv-spam popups) */
     M1ESP_BLE_SPAM_STOP       = 0x040E, /* REQ (none) -> RESP u8 status */
-    M1ESP_BLE_RPC_ADV         = 0x040F, /* REQ u8 enable [+ name bytes when enable=1] -> RESP u8 status — Bluetooth-Direct (NUS) advertising */
+    M1ESP_BLE_RPC_ADV         = 0x040F, /* REQ u8 enable [+ name bytes when enable=1] -> RESP u8 status — Bluetooth-Direct (NUS). Name is OPTIONAL (len==1 keeps current). */
     M1ESP_BLE_STATE           = 0x0410, /* REQ (none) -> RESP u8 flags: bit0 direct_adv, bit1 direct_conn, bit2 hid_adv, bit3 hid_conn */
-    M1ESP_BLE_BEACON_START    = 0x0411, /* REQ [type:1] iBeacon [uuid:16][major:2 LE][minor:2 LE][tx:i8] OR Eddystone-URL [url bytes] -> RESP u8 status */
+    M1ESP_BLE_BEACON_START    = 0x0411, /* REQ [type:1] then iBeacon [uuid:16][major:2 LE][minor:2 LE][tx:i8] OR Eddystone-URL [url bytes] -> RESP u8 status */
     M1ESP_BLE_BEACON_STOP     = 0x0412, /* REQ (none) -> RESP u8 status */
 
     /* ---- Zigbee / 802.15.4 0x0500-0x05FF ---- */
@@ -194,7 +194,7 @@ typedef enum {
     M1ESP_ZB_SCAN             = 0x0501,
     M1ESP_ZB_SNIFF_START      = 0x0502, /* REQ u8 channel (11-26) -> RESP u8 status */
     M1ESP_ZB_SNIFF_STOP       = 0x0503, /* REQ (none) -> RESP u8 status */
-    M1ESP_ZB_SNIFF_GET        = 0x0504, /* REQ (none) -> RESP [count:1] then per-frame [ch:1][rssi:i8][len:2][bytes] */
+    M1ESP_ZB_SNIFF_GET        = 0x0504, /* REQ (none) -> RESP [count:1] then [ch:1][rssi:i8][len:2][bytes] per frame */
     M1ESP_ZB_FLOOD_START      = 0x0505, /* REQ u8 channel (0=sweep 11-26) -> RESP u8 status (beacon-request flood) */
     M1ESP_ZB_FLOOD_STOP       = 0x0506, /* REQ (none) -> RESP u8 status */
     M1ESP_ZB_INJECT           = 0x0507, /* REQ raw MPDU (no FCS) -> RESP u8 status */
@@ -203,10 +203,10 @@ typedef enum {
     /* ---- ESP-NOW peer-to-peer M1<->M1 link 0x0600-0x06FF ---- */
     M1ESP_NOW_START           = 0x0600, /* REQ [ch:1][name...] -> RESP [status:1][mac:6] */
     M1ESP_NOW_STOP            = 0x0601, /* REQ (none) -> RESP u8 status */
-    M1ESP_NOW_ANNOUNCE        = 0x0602, /* REQ (none) -> RESP u8 status */
-    M1ESP_NOW_PEERS_GET       = 0x0603, /* REQ (none) -> RESP [count:1] then per peer [mac:6][rssi:i8][namelen:1][name] */
-    M1ESP_NOW_SEND            = 0x0604, /* REQ [mac:6][data...] -> RESP u8 status (mac=FF..FF broadcast) */
-    M1ESP_NOW_RECV_GET        = 0x0605, /* REQ (none) -> RESP [count:1] then per msg [mac:6][len:2 LE][data] */
+    M1ESP_NOW_ANNOUNCE        = 0x0602, /* REQ (none) -> RESP u8 status (broadcast presence) */
+    M1ESP_NOW_PEERS_GET       = 0x0603, /* REQ (none) -> RESP [count:1] then [mac:6][rssi:i8][namelen:1][name] per peer */
+    M1ESP_NOW_SEND            = 0x0604, /* REQ [mac:6][data...] -> RESP u8 status (mac=FF..FF = broadcast) */
+    M1ESP_NOW_RECV_GET        = 0x0605, /* REQ (none) -> RESP [count:1] then [mac:6][len:2 LE][data] per msg */
 
     /* ---- Screen / qMonstatek bridge 0x0700-0x07FF ---- */
     M1ESP_SCREEN_PUSH         = 0x0700, /* REQ u8[] framebuffer -> RESP u8 status */
@@ -263,40 +263,41 @@ typedef enum {
  * so ONE host firmware supports many ESP builds without hard-coding names.
  *
  * IMPORTANT (hapaxx11 bug fix): the bitmap is serialized on the wire as
- * uint8_t[8] LITTLE-ENDIAN, NOT a packed uint64_t -- packing/alignment of a
+ * uint8_t[8] LITTLE-ENDIAN, NOT a packed uint64_t — packing/alignment of a
  * uint64_t inside a __packed struct bit them. Use the [8] array on the wire
  * and rebuild a u64 in code with m1esp_caps_get()/m1esp_caps_set().
  */
-#define M1ESP_CAP_WIFI_SCAN     (UINT64_C(1) <<  0)
-#define M1ESP_CAP_STA_SCAN      (UINT64_C(1) <<  1)
-#define M1ESP_CAP_BLE_SCAN      (UINT64_C(1) <<  2)
-#define M1ESP_CAP_BLE_ADV       (UINT64_C(1) <<  3)
-#define M1ESP_CAP_DEAUTH        (UINT64_C(1) <<  4)
-#define M1ESP_CAP_BEACON        (UINT64_C(1) <<  5)
-#define M1ESP_CAP_PROBE_FLOOD   (UINT64_C(1) <<  6)
-#define M1ESP_CAP_KARMA         (UINT64_C(1) <<  7)
-#define M1ESP_CAP_PKTMON        (UINT64_C(1) <<  8)
-#define M1ESP_CAP_PORTAL        (UINT64_C(1) <<  9)
-#define M1ESP_CAP_WIFI_JOIN     (UINT64_C(1) << 10)
-#define M1ESP_CAP_WIFI_SET_MAC  (UINT64_C(1) << 11)
-#define M1ESP_CAP_WIFI_SET_CHAN (UINT64_C(1) << 12)
-#define M1ESP_CAP_NETSCAN       (UINT64_C(1) << 13)
-#define M1ESP_CAP_BLE_HID       (UINT64_C(1) << 14)
-#define M1ESP_CAP_BT_MANAGE     (UINT64_C(1) << 15)
-#define M1ESP_CAP_802154        (UINT64_C(1) << 16)
-#define M1ESP_CAP_BLE_GATT      (UINT64_C(1) << 17)
-#define M1ESP_CAP_PMKID         (UINT64_C(1) << 18)
-#define M1ESP_CAP_HANDSHAKE     (UINT64_C(1) << 19)
-#define M1ESP_CAP_OTA           (UINT64_C(1) << 20)
-#define M1ESP_CAP_BLE_SPAM      (UINT64_C(1) << 21)
-#define M1ESP_CAP_802154_TX     (UINT64_C(1) << 22)
+#define M1_CAP_WIFI_SCAN     (UINT64_C(1) <<  0)
+#define M1_CAP_STA_SCAN      (UINT64_C(1) <<  1)
+#define M1_CAP_BLE_SCAN      (UINT64_C(1) <<  2)
+#define M1_CAP_BLE_ADV       (UINT64_C(1) <<  3)
+#define M1_CAP_DEAUTH        (UINT64_C(1) <<  4)
+#define M1_CAP_BEACON        (UINT64_C(1) <<  5)
+#define M1_CAP_PROBE_FLOOD   (UINT64_C(1) <<  6)
+#define M1_CAP_KARMA         (UINT64_C(1) <<  7)
+#define M1_CAP_PKTMON        (UINT64_C(1) <<  8)
+#define M1_CAP_PORTAL        (UINT64_C(1) <<  9)
+#define M1_CAP_WIFI_JOIN     (UINT64_C(1) << 10)
+#define M1_CAP_WIFI_SET_MAC  (UINT64_C(1) << 11)
+#define M1_CAP_WIFI_SET_CHAN (UINT64_C(1) << 12)
+#define M1_CAP_NETSCAN       (UINT64_C(1) << 13)
+#define M1_CAP_BLE_HID       (UINT64_C(1) << 14)
+#define M1_CAP_BT_MANAGE     (UINT64_C(1) << 15)
+#define M1_CAP_802154        (UINT64_C(1) << 16)
+#define M1_CAP_BLE_GATT      (UINT64_C(1) << 17)
+#define M1_CAP_PMKID         (UINT64_C(1) << 18)
+#define M1_CAP_HANDSHAKE     (UINT64_C(1) << 19)
+#define M1_CAP_OTA           (UINT64_C(1) << 20)
+#define M1_CAP_BLE_SPAM      (UINT64_C(1) << 21)
+#define M1_CAP_802154_TX     (UINT64_C(1) << 22)
+#define M1_CAP_SOFTAP        (UINT64_C(1) << 23)
 
 #define M1ESP_FW_NAME_LEN   32
 
 /* M1ESP_SYS_GET_STATUS response payload (protocol version 1). */
 typedef struct __attribute__((packed)) {
     uint8_t  proto_ver;                    /* == M1ESP_VERSION */
-    uint8_t  cap_bitmap[8];                /* M1ESP_CAP_* bits, LITTLE-ENDIAN u64 */
+    uint8_t  cap_bitmap[8];                /* M1_CAP_* bits, LITTLE-ENDIAN u64 */
     char     fw_name[M1ESP_FW_NAME_LEN];  /* null-terminated ASCII fw id */
 } m1esp_devstatus_t;
 
@@ -314,7 +315,7 @@ typedef struct __attribute__((packed)) {
     char    git_hash[16];   /* null-terminated */
 } m1esp_fw_version_t;
 
-/* SYS_SNTP_SYNC response: UTC time the ESP obtained from NTP. */
+/* SYS_SNTP_SYNC response: UTC time obtained from NTP. */
 typedef struct __attribute__((packed)) {
     uint16_t year;     /* e.g. 2026 */
     uint8_t  month;    /* 1-12 */
@@ -325,19 +326,19 @@ typedef struct __attribute__((packed)) {
     uint8_t  weekday;  /* 0=Sun .. 6=Sat */
 } m1esp_time_t;
 
-/* One discovered 802.15.4 (Zigbee/Thread) device — ZB_SNIFF_GET returns
- * [u8 count] then `count` of these (aggregated + deduped on the ESP). */
+/* One discovered 802.15.4 (Zigbee/Thread) device. ZB_SNIFF_GET response is
+ * [u8 count] followed by `count` of these (aggregated + deduped on the ESP). */
 typedef struct __attribute__((packed)) {
-    uint8_t  addr_mode;   /* 2 = short (2B), 3 = extended (8B) */
+    uint8_t  addr_mode;   /* 2 = short (2B in addr[0..1]), 3 = extended (8B) */
     uint8_t  addr[8];     /* source address, little-endian as received */
     uint16_t panid;       /* source PAN ID (0xFFFF if unknown) */
-    uint8_t  channel;     /* 11-26 heard on */
-    int8_t   rssi;        /* peak RSSI (dBm) */
+    uint8_t  channel;     /* 11-26 the device was heard on */
+    int8_t   rssi;        /* peak RSSI seen (dBm) */
     uint8_t  lqi;         /* last link-quality */
-    uint8_t  flags;       /* bit0=beacon(coordinator) bit1=data bit2=cmd */
-    uint16_t frames;      /* frames heard */
+    uint8_t  flags;       /* bit0=beacon(coordinator/router) bit1=data bit2=cmd */
+    uint16_t frames;      /* frames heard from this device */
     uint8_t  proto;       /* 'Z'=Zigbee, 'T'=Thread, 0/'U'=unknown (heuristic) */
-} m1esp_zb_device_t;      /* 17 bytes */
+} m1esp_zb_device_t;     /* 17 bytes */
 
 /* WIFI_SCAN response: u16 count, then `count` of these (ssid is variable, so
  * this is the fixed prefix; ssid bytes follow, ssid_len long). */
@@ -378,7 +379,7 @@ typedef struct __attribute__((packed)) {
  * STM32H573 SPI3 pins (M1 PCB), configured as MASTER:
  *   SCLK = PB3 (AF6)  MOSI = PB2 (AF7)  MISO = PB4 (AF6)  CS = PB10  HS = PD7 (input)
  *
- * SPI mode 1 (CPOL=0, CPHA=1), MSB-first -- matches the ESP-AT SPI-HD slave.
+ * SPI mode 1 (CPOL=0, CPHA=1), MSB-first — matches the ESP-AT SPI-HD slave.
  * Clock: TODO validate on hardware. Prior AT bench ran 4.6875 MHz (75MHz/16);
  * Option-C target is up to 10 MHz. Start conservative, raise after PING is
  * stable at speed.
