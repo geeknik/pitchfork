@@ -20,6 +20,13 @@ jobs:
       - name: Host test suites (ASan + UBSan)
         run: make -C m1_csrc/test test
 
+  fuzz-elf:
+    # Ubuntu: LLVM clang ships the libFuzzer runtime; Xcode's clang on the
+    # macOS runners does not (libclang_rt.fuzzer_osx.a is absent).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
       - name: ELF loader fuzz smoke (30s)
         run: make -C m1_csrc/test fuzz-elf FUZZ_ARGS="-max_total_time=30"
 
@@ -35,9 +42,10 @@ jobs:
           path: m1-esp32-brain
 
       - name: Wire-contract parity (m1_esp_rpc.h vs brain m1_rpc.h)
-        run: python3 M1OS/tools/check_esp_contract.py
+        working-directory: M1OS
+        run: python3 tools/check_esp_contract.py
         env:
-          M1_BRAIN_HEADER: m1-esp32-brain/components/m1_rpc/include/m1_rpc.h
+          M1_BRAIN_HEADER: ../m1-esp32-brain/components/m1_rpc/include/m1_rpc.h
 
   generator-determinism:
     runs-on: ubuntu-latest
