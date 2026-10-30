@@ -259,7 +259,21 @@ the app runtime, menu engine, RPC stack, and tracked allocator.
    reset cause, running app, CRASH_LOOP marker at >= 3) into a 32-slot ring
    at `0:/System/crash/`. A watchdog freeze is now a concrete record, not
    "it froze". Pure core (format + slot policy) host-tested.
-11. **Firmware cross-build restored on this Mac** (xPack arm-none-eabi GCC
+11. **INCIDENT 2026-10-29/30 — first hardware flash bricked boot; recovered via SWD;
+    root-caused and fixed.** The 1.1.83 stock-format transition image was accepted,
+    then the device boot-looped dark. SWD recovery (HiLetgo ST-Link clone on external
+    connector pins 8/9/10/11, STM32CubeProgrammer + pyOCD): TAMP fault record showed
+    HardFault(FORCED usage STKOF = stack overflow) at PC in
+    **m1_crash_persist_if_pending** (my SD-mount hook), 461 ms after boot — the
+    crash recorder's ~1.1 KB stack frame (512-byte buffer + FIL) overflowed the
+    small SD-init boot task, fault→reset→identical boot, ~10^5 loops. Revived by
+    flipping SWAP_BANK=1 (device had already been bank-swapped by a prior stock
+    update; the transition image landed in bank1 and pointed the boot at it).
+    Fix in 1.1.84: all large locals in the persist path are static; record buffer
+    512→384. Lesson recorded: host tests cannot catch boot-task stack-depth faults;
+    boot-path code gets static buffers, and the RTCAPB clock theory was disproven
+    (TAMP is accessible without explicit clock enable on this part).
+12. **Firmware cross-build restored on this Mac** (xPack arm-none-eabi GCC
    14.2.1): full image builds clean, zero warnings in the new modules,
    `wCRC` image at 1,047,616 B — note flash headroom is now < 2 KB against
    the 1 MB bank crop; the reachability filter in app_api_gen is what keeps

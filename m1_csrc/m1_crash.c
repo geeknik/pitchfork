@@ -23,7 +23,8 @@
 #define M1_CRASH_MAGIC          0xFA017C0DU   /* set by m1_fault_capture */
 #define M1_CRASH_DIR            "0:/System/crash"
 #define M1_CRASH_SLOT_FMT       "0:/System/crash/crash_%03d.txt"
-#define M1_CRASH_BUF_MAX        512
+#define M1_CRASH_BUF_MAX        384   /* record fits in ~330 bytes; 384 gives
+                                       * headroom without a bloated buffer */
 
 /* TAMP layout: BKP2R..BKP7R = fault post-mortem (stm32h5xx_it.c);
  * BKP8R..BKP12R = SPI-link breadcrumbs / flash-stall markers;
@@ -102,8 +103,8 @@ void m1_crash_note_app(const char *app_name)
 
 static bool slot_exists(int slot)
 {
-    char path[40];
-    FILINFO fi;
+    static char path[40];
+    static FILINFO fi;
     snprintf(path, sizeof(path), M1_CRASH_SLOT_FMT, slot);
     return f_stat(path, &fi) == FR_OK;
 }
@@ -123,7 +124,11 @@ void m1_crash_persist_if_pending(void)
     if (!m1_crash_pending())
         return;
 
-    char buf[M1_CRASH_BUF_MAX];
+    /* BOOT-PATH STACK RULE: m1_sdcard_mount calls this on a small-stack init
+     * task; the first cut used ~1.1KB of stack here (512B buf + FIL) and
+     * stack-overflowed the device into a hardfault boot loop at 461ms. All
+     * large locals below are static — .bss is cheap, boot-task stack is not. */
+    static char buf[M1_CRASH_BUF_MAX];
     size_t len = m1_crash_format(buf, sizeof(buf), &s_pending.info);
     if (len == 0) {
         M1_LOG_E(TAG, "record did not fit %d bytes", M1_CRASH_BUF_MAX);
@@ -139,10 +144,10 @@ void m1_crash_persist_if_pending(void)
     }
 
     int slot = m1_crash_next_slot(read_last_slot(), slot_exists);
-    char path[40];
+    static char path[40];
     snprintf(path, sizeof(path), M1_CRASH_SLOT_FMT, slot);
 
-    FIL f;
+    static FIL f;      /* ~0.5KB with LFN enabled — never on this stack */
     fr = f_open(&f, path, FA_WRITE | FA_CREATE_ALWAYS);
     if (fr != FR_OK) {
         M1_LOG_E(TAG, "cannot open %s (fr=%d)", path, (int)fr);
