@@ -14,11 +14,35 @@ user-customizable: arrange apps into the positions you want and nest them.
 
 > **This is a community project and is not affiliated with or endorsed by Monstatek.**
 
+## What's inside (1.1.84 – 1.1.88 highlights)
+
+- **App supervision** (API ≥ 7): apps heartbeat via `m1_sys_call`; a hung app
+  is *contained* — radio ops stopped, display reclaimed, a `hung` crash record
+  naming it written to `/System/crash/`, menu back — never a corrupted kill.
+- **Persistent crash records**: hardfaults *and* watchdog freezes land as
+  formatted records (fault regs, uptime, running app, crash-loop marker) in a
+  32-slot ring on SD — "it froze" is now a file.
+- **Umbrella service ABI** (`SERVICE_ABI.md`): `m1_sys_call`,
+  `m1_storage_call` (sandboxed, atomic writes), `m1_ui_call` (display-focus
+  lease), `m1_radio_call` (region policy) — versioned `size/version/flags`
+  requests, additive-only ops.
+- **Resource leases**: display focus + the ESP channel (16 long-running radio
+  ops force-stopped when their owning app exits).
+- **Data-driven Sub-GHz TX policy**: runtime region select; the kernel TX
+  boundary enforces band tables and power caps, failing closed.
+- **Hardened ELF loader**: relocation bounds + alignment checks (a crafted
+  app had an arbitrary heap read/write — fixed and regression-tested).
+- **Capture stack ported** (foundation, not yet wired to UI): the proven
+  capframe → COBS → pcapng pipeline with 237 host assertions.
+
+See [`STATUS.md`](STATUS.md) for the engineering record and
+[`SERVICE_ABI.md`](SERVICE_ABI.md) for the app ABI. Changelog: [`CHANGELOG.md`](CHANGELOG.md).
+
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full design.
 
 ## Status
 
-**Active runtime, 1.1-series.** Current version **1.1.83.0**. Pitchfork (then M1OS) was seeded
+**Active runtime, 1.1-series.** Current version **1.1.88.0**. Pitchfork (then M1OS) was seeded
 from the fully-bundled `m1-firmware` at `v0.8.0.0-C3.148` (2026-07-28) and has
 since diverged deliberately: it ships the `.m1app` ELF app runtime (API level
 5, 544 exported symbols), user-customizable SD-driven menus, an RPC stack with
