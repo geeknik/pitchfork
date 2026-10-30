@@ -10,6 +10,14 @@
   cadence, static buffers throughout. Headless API ready for RPC/UI
   wiring (next).
 
+## [1.1.90] – 2026-10-30
+### Added
+- RPC trigger surface for WiFi captures: `CAPTURE_START 0x70`
+  (`[chan][dur_ms]`, chan 0 = hop, default 30 s), `CAPTURE_STOP 0x71`
+  (idempotent), `CAPTURE_STATS 0x72/0x73`
+  (active/frames/dropped/bytes). Captures are companion-triggerable
+  over USB CDC; the pcapng lands on SD, retrievable via `FILE_READ`.
+
 <!-- Changelog discipline: every FW_VERSION bump gets its entry in the same
      change (user directive 2026-10-30; see STATUS.md §7a). -->
 
