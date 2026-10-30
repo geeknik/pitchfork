@@ -176,10 +176,14 @@ def cmd_pull(m, a):
     return 0
 
 def cmd_ls(m, a):
-    chunks = m.collect(FILE_LIST, (a.path or "").encode(), wait=6.0)
-    for c in chunks:
-        sys.stdout.buffer.write(c)
-    print()
+    p = m.rpc(FILE_LIST, (a.path or "").encode(), wait=6.0)
+    if p is None:
+        print("no reply"); return 1
+    # payload: [path echo ...] entries as NUL-separated names after a header;
+    # dump printable names, one per line
+    names = [t.decode("utf-8", "replace") for t in p.split(b"\x00") if t]
+    for nm in names:
+        print(nm)
     return 0
 
 def cmd_doctor(m, _):

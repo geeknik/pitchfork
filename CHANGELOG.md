@@ -58,6 +58,15 @@
   artifact reference, and integrity hash. Tick-stamp naming until the
   RTC lands; correlation is by session_id.
 
+## [1.1.94] – 2026-10-30
+### Fixed
+- Envelope writer: correct CRC-32C semantics (M1_CRC32C_INIT seed +
+  final XOR — stored hashes are now standard, host-verifiable), the
+  missing `captures/` subdirectory creation, `0:/` path convention,
+  and every mkdir/open result now logged instead of silently skipped
+  (the live verification caught all three: no session dir appeared and
+  the hash contract was wrong).
+
 <!-- Changelog discipline: every FW_VERSION bump gets its entry in the same
      change (user directive 2026-10-30; see STATUS.md §7a). -->
 

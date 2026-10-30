@@ -221,12 +221,22 @@ static void capsrc_write_envelope(void)
      * monotonically (tick) and correlate by session_id; the stamp format
      * upgrades to calendar time later without breaking readers. */
     m1_env_session_id(sid, xTaskGetTickCount(), s_cap.stats.frames);
-    snprintf(dir, sizeof(dir), "/Sessions/s%lu-%s",
+    snprintf(dir, sizeof(dir), "0:/Sessions/s%lu-%s",
              (unsigned long)xTaskGetTickCount(), sid);
-    f_mkdir("/Sessions");
-    f_mkdir(dir);
+    FRESULT mr;
+    mr = f_mkdir("0:/Sessions");
+    if (mr != FR_OK && mr != FR_EXIST)
+        M1_LOG_E(TAG, "envelope: mkdir 0:/Sessions failed (%d)", (int)mr);
+    mr = f_mkdir(dir);
+    if (mr != FR_OK && mr != FR_EXIST)
+        M1_LOG_E(TAG, "envelope: mkdir %s failed (%d)", dir, (int)mr);
+    char sub[M1_ENV_DIR_MAX + 12];
+    snprintf(sub, sizeof(sub), "%s/captures", dir);
+    mr = f_mkdir(sub);
+    if (mr != FR_OK && mr != FR_EXIST)
+        M1_LOG_E(TAG, "envelope: mkdir %s failed (%d)", sub, (int)mr);
 
-    uint32_t crc = 0;
+    uint32_t crc = M1_CRC32C_INIT;
     if (f_open(&hf, s_cap.path, FA_READ) == FR_OK) {
         UINT got = 0;
         for (;;) {
@@ -237,6 +247,7 @@ static void capsrc_write_envelope(void)
         }
         f_close(&hf);
     }
+    crc = m1_crc32c_final(crc);   /* standard CRC-32C, host-verifiable */
 
     char params[64];
     snprintf(params, sizeof(params), "chan:%u,frames:%lu",
@@ -261,8 +272,13 @@ static void capsrc_write_envelope(void)
     if (n == 0)
         return;
     snprintf(epath, sizeof(epath), "%s/captures/1.m1env", dir);
-    FIL ef;
-    if (f_open(&ef, epath, FA_WRITE | FA_CREATE_ALWAYS) == FR_OK) {
+    static FIL ef;
+    FRESULT fr2 = f_open(&ef, epath, FA_WRITE | FA_CREATE_ALWAYS);
+    if (fr2 != FR_OK) {
+        M1_LOG_E(TAG, "envelope: open %s failed (%d)", epath, (int)fr2);
+        return;
+    }
+    {
         UINT w = 0;
         f_write(&ef, ebuf, n, &w);
         f_sync(&ef);
