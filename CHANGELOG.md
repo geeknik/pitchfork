@@ -26,6 +26,14 @@
   `CAPTURE_STOP` now clears the brain unconditionally even with no local
   session, and failed monitor teardowns log a warning.
 
+### Tooling (2026-10-30)
+- `tools/m1ctl/` — in-repo headless companion CLI (stdlib Python):
+  ping/info/capture start-stop-stats/pull/ls/doctor/selftest. Carries
+  the full RPC wire notes (framing, sync-excluded CCITT, seq-matched
+  streaming replies, lazy-ESP window, STOP-as-recovery) with an offline
+  selftest enforcing them. Live-verified end to end: remote 12 s capture
+  on ch6 → 105 frames → pcapng pulled to host with valid SHB.
+
 <!-- Changelog discipline: every FW_VERSION bump gets its entry in the same
      change (user directive 2026-10-30; see STATUS.md §7a). -->
 

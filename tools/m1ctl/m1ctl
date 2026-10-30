@@ -1,0 +1,228 @@
+#!/usr/bin/env python3
+"""m1ctl — headless control for a Pitchfork M1 over USB CDC (the qMon RPC).
+
+Speaks the device's RPC framing directly, with everything learned from the
+2026-10-30 protocol work baked in:
+
+  Frame:  [0xAA][CMD:1][SEQ:1][LEN:2 LE][PAYLOAD][CRC16:2 LE]
+  CRC  :  CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF, non-reflected)
+          over CMD+SEQ+LEN+PAYLOAD — the 0xAA sync byte is EXCLUDED.
+  Reply: same framing; match by SEQ. Replies may stream back-to-back
+          (FILE_READ sends the whole file as sequential frames).
+
+Known quirks (see README.md):
+  - The ESP link is lazy-initialized: the first radio command after boot
+    can take seconds (use a long window for `capture start`).
+  - CAPTURE_STOP is the recovery path for a brain stuck in monitor mode.
+  - CDC enumerates as /dev/cu.usbmodem* (macOS) or /dev/ttyACM* (Linux).
+
+Stdlib only. Python 3.8+.
+"""
+import argparse, glob, os, select, struct, sys, termios, time
+
+SYNC, HDR = 0xAA, 5
+
+def crc16(d):
+    crc = 0xFFFF
+    for b in d:
+        crc ^= b << 8
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x1021) & 0xFFFF if crc & 0x8000 else (crc << 1) & 0xFFFF
+    return crc
+
+def frame(cmd, seq, payload=b""):
+    hdr = bytes([SYNC, cmd, seq]) + struct.pack("<H", len(payload))
+    return hdr + payload + struct.pack("<H", crc16(hdr[1:] + payload))
+
+def parse_frames(buf):
+    """Yield (cmd, seq, payload) from a buffer; return consumed byte count."""
+    out, i = [], 0
+    while i + HDR <= len(buf):
+        if buf[i] != SYNC:
+            i += 1
+            continue
+        ln = int.from_bytes(buf[i+3:i+5], "little")
+        if i + HDR + ln + 2 > len(buf):
+            break
+        body = buf[i+1:i+HDR+ln]
+        want = int.from_bytes(buf[i+HDR+ln:i+HDR+ln+2], "little")
+        if crc16(body) == want:
+            out.append((buf[i+1], buf[i+2], buf[i+5:i+5+ln]))
+            i += HDR + ln + 2
+        else:
+            i += 1                      # bad CRC: resync one byte
+    return out, i
+
+# ── transport ────────────────────────────────────────────────────────────────
+class M1:
+    def __init__(self, dev=None):
+        self.dev = dev or autodetect()
+        self.fd = os.open(self.dev, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+        iflag, oflag, cflag, lflag, isp, osp, cc = termios.tcgetattr(self.fd)
+        cflag |= termios.CS8 | termios.CREAD | termios.CLOCAL
+        lflag &= ~(termios.ICANON | termios.ECHO | termios.ISIG | termios.IEXTEN)
+        termios.tcsetattr(self.fd, termios.TCSANOW,
+                          [iflag, oflag, cflag, lflag, termios.B115200, termios.B115200, cc])
+        self.buf = b""
+        self.seq = 0
+
+    def close(self):
+        os.close(self.fd)
+
+    def _drain(self, seconds):
+        end = time.time() + seconds
+        while time.time() < end:
+            r, _, _ = select.select([self.fd], [], [], 0.05)
+            if r:
+                try:
+                    self.buf += os.read(self.fd, 65536)
+                except BlockingIOError:
+                    pass
+
+    def rpc(self, cmd, payload=b"", wait=4.0):
+        """Send one frame; return the seq-matched reply payload, or None."""
+        self.seq = (self.seq + 1) & 0xFF
+        os.write(self.fd, frame(cmd, self.seq, payload))
+        deadline = time.time() + wait
+        while time.time() < deadline:
+            self._drain(0.1)
+            frames, used = parse_frames(self.buf)
+            self.buf = self.buf[used:]
+            for c, s, p in frames:
+                if s == self.seq:
+                    return p
+        return None
+
+    def collect(self, cmd, payload=b"", wait=4.0, idle=0.6):
+        """Send a request and gather ALL frames of response type `cmd`
+        (for streamed replies like FILE_READ). Frames carry their own seqs."""
+        self.seq = (self.seq + 1) & 0xFF
+        os.write(self.fd, frame(cmd, self.seq, payload))
+        got = {}
+        last = time.time()
+        while time.time() - last < idle and time.time() - (last - idle) < wait:
+            self._drain(0.1)
+            frames, used = parse_frames(self.buf)
+            self.buf = self.buf[used:]
+            if frames:
+                last = time.time()
+                for c, s, p in frames:
+                    got[s] = p
+        return [got[k] for k in sorted(got)]
+
+def autodetect():
+    for pat in ("/dev/cu.usbmodem*", "/dev/tty.usbmodem*", "/dev/ttyACM*"):
+        found = sorted(glob.glob(pat))
+        if found:
+            return found[0]
+    sys.exit("no M1 serial device found (looked for usbmodem*/ttyACM*)")
+
+# ── RPC commands (m1_rpc.h) ─────────────────────────────────────────────────
+PING, GET_DEVICE_INFO = 0x01, 0x03
+FILE_LIST, FILE_READ, FILE_READ_DATA = 0x30, 0x32, 0x33
+CAPTURE_START, CAPTURE_STOP, CAPTURE_STATS = 0xA0, 0xA1, 0xA2
+
+# ── subcommands ──────────────────────────────────────────────────────────────
+def cmd_ping(m, _):
+    p = m.rpc(PING, wait=2.0)
+    print("pong" if p is not None else "no reply")
+    return 0 if p is not None else 1
+
+def cmd_info(m, _):
+    p = m.rpc(GET_DEVICE_INFO, wait=3.0)
+    if not p:
+        print("no reply"); return 1
+    fw = "%d.%d.%d.%d" % (p[4], p[5], p[6], p[7])
+    tail = p[8:]
+    esp = "unknown"
+    for marker in (b"m1_link ", b"ESP not started", b"n/a"):
+        idx = tail.find(marker)
+        if idx >= 0:
+            esp = tail[idx:idx+40].split(b"\0")[0].decode("utf-8", "replace")
+            break
+    print("firmware :", fw)
+    print("esp link :", esp)
+    return 0
+
+def cmd_capture(m, a):
+    if a.action == "start":
+        dur = struct.pack("<I", a.ms or 30000)
+        p = m.rpc(CAPTURE_START, bytes([a.chan or 0]) + dur, wait=15.0)  # cold-init window
+        rc = p[0] if p else 0xFF
+        print("start rc=%d %s" % (rc, "OK" if rc == 0 else "FAILED (STOP to recover)"))
+        return 0 if rc == 0 else 1
+    if a.action == "stop":
+        p = m.rpc(CAPTURE_STOP, wait=8.0)
+        print("stop rc=%d" % (p[0] if p else 0xFF))
+        return 0
+    if a.action == "stats":
+        p = m.rpc(CAPTURE_STATS, wait=2.0)
+        if not p or len(p) < 13:
+            print("no stats"); return 1
+        print("active=%d frames=%d dropped=%d bytes=%d" %
+              (p[0], int.from_bytes(p[1:5], "little"),
+               int.from_bytes(p[5:9], "little"), int.from_bytes(p[9:13], "little")))
+        return 0
+
+def cmd_pull(m, a):
+    chunks = m.collect(FILE_READ, a.path.encode(), wait=20.0, idle=1.0)
+    data = b""
+    for c in chunks:                    # payload = offset(4) + data
+        data += c[4:]
+    if not data:
+        print("no data (bad path?)"); return 1
+    open(a.out, "wb").write(data)
+    print("wrote %d bytes -> %s" % (len(data), a.out))
+    return 0
+
+def cmd_ls(m, a):
+    chunks = m.collect(FILE_LIST, (a.path or "").encode(), wait=6.0)
+    for c in chunks:
+        sys.stdout.buffer.write(c)
+    print()
+    return 0
+
+def cmd_doctor(m, _):
+    rc = cmd_ping(m, None)
+    cmd_info(m, None)
+    p = m.rpc(CAPTURE_STOP, wait=8.0)   # clear any stuck brain monitor
+    print("monitor :", "cleared" if p is not None else "no reply to recovery stop")
+    return rc
+
+def cmd_selftest(_m, _a):
+    assert crc16(b"123456789") == 0x29B1, "CCITT-FALSE check vector"
+    f = frame(0x03, 7, b"hi")
+    assert f == bytes([0xAA, 0x03, 7, 2, 0]) + b"hi" + struct.pack("<H", crc16(bytes([3, 7, 2, 0]) + b"hi"))
+    garbage = b"\x00\x55" + f + b"\xff"
+    frames, used = parse_frames(garbage)
+    assert frames == [(0x03, 7, b"hi")]
+    assert used == 2 + len(f), "streaming parser keeps unconsumed tail buffered"
+    print("selftest OK (crc vector, framing roundtrip, resync)")
+    return 0
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--device", help="serial device (default: autodetect)")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    for name, fn in (("ping", cmd_ping), ("info", cmd_info), ("doctor", cmd_doctor),
+                     ("selftest", cmd_selftest)):
+        s = sub.add_parser(name); s.set_defaults(fn=fn)
+    s = sub.add_parser("capture")
+    s.add_argument("action", choices=["start", "stop", "stats"]); s.set_defaults(fn=cmd_capture)
+    s.add_argument("--chan", type=int, default=0, help="channel (0=hop)")
+    s.add_argument("--ms", type=int, default=30000)
+    s = sub.add_parser("pull")
+    s.add_argument("path"); s.add_argument("out"); s.set_defaults(fn=cmd_pull)
+    s = sub.add_parser("ls")
+    s.add_argument("path", nargs="?", default=""); s.set_defaults(fn=cmd_ls)
+    a = ap.parse_args()
+    if a.fn is cmd_selftest:
+        sys.exit(a.fn(None, a))
+    m = M1(a.device)
+    try:
+        sys.exit(a.fn(m, a) or 0)
+    finally:
+        m.close()
+
+if __name__ == "__main__":
+    main()
