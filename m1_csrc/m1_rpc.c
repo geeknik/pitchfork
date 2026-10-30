@@ -349,6 +349,8 @@ static void rpc_handle_gpio_write(const S_RPC_Frame *f);
 static void rpc_handle_capture_start(const S_RPC_Frame *f);
 static void rpc_handle_capture_stop(const S_RPC_Frame *f);
 static void rpc_handle_capture_stats(const S_RPC_Frame *f);
+static void m1_rpc_send_resp(uint8_t cmd, uint8_t seq,
+                             const uint8_t *payload, uint16_t len);
 static void rpc_handle_gpio_read(const S_RPC_Frame *f);
 static void rpc_handle_gpio_release(const S_RPC_Frame *f);
 static void rpc_handle_gpio_power(const S_RPC_Frame *f);
