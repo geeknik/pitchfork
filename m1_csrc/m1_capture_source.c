@@ -17,7 +17,11 @@
 #include "ff.h"
 #include "m1_log_debug.h"
 #include "m1_esp_client.h"
-#include "m1_esp32_hal.h"   /* m1_esp32_init: bring the lazy link up */
+#ifdef M1_HOST_TEST
+void m1_esp32_init(void);            /* host: stubbed by the test */
+#else
+#include "m1_esp32_hal.h"            /* m1_esp32_init: bring the lazy link up */
+#endif
 #include "m1_capture_source.h"
 #include "m1_capture_frame.h"
 #include "m1_capture_pcap.h"

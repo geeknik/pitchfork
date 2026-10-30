@@ -6,6 +6,7 @@
 #include "m1_esp_client.h"
 
 /* stub brain client surface (device: m1_esp_client.c) */
+void m1_esp32_init(void) { }         /* link bring-up stub */
 int  m1_esp_client_monitor_start(uint8_t c) { (void)c; return 0; }
 bool m1_esp_client_monitor_stop(void) { return true; }
 bool m1_esp_client_monitor_stats(uint32_t *t, uint32_t *d, uint8_t *b)

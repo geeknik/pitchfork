@@ -49,7 +49,7 @@ test-radio: test_m1_radio_policy.c ../m1_radio_policy.c ../m1_app_radio.c
 
 # Stock capture-stack suites (imported 2026-10-30; pure codecs, no stubs needed)
 test-capsrc: test_m1_capsrc.c ../m1_capture_source.c
-	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_m1_capsrc.c ../m1_capture_source.c ../m1_capture_pcap.c ../m1_radiotap.c ../m1_capture_frame.c ../m1_pcapng.c $(STUB_SRC)
+	$(CC) $(CFLAGS) $(INCLUDES) -DM1_HOST_TEST -o $@ test_m1_capsrc.c ../m1_capture_source.c ../m1_capture_pcap.c ../m1_radiotap.c ../m1_capture_frame.c ../m1_pcapng.c $(STUB_SRC)
 	./$@
 
 test-capframe: m1_capture_frame_test.c ../m1_capture_frame.c
