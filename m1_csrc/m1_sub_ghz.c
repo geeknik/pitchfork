@@ -23,6 +23,7 @@
 #include "m1_tasks.h"
 #include "m1_sub_ghz_api.h"
 //#include "m1_sub_ghz.h"
+#include "m1_radio_policy.h"
 #include "m1_sub_ghz_decenc.h"
 #include "subghz_protocol_registry.h"
 #include "subghz_key_encoder.h"
@@ -594,6 +595,12 @@ void menu_sub_ghz_exit(void)
 /*============================================================================*/
 void sub_ghz_init(void)
 {
+	/* Seed the radio-policy region from the persisted device config so the
+	 * data-driven TX gate starts in sync with what the UI/hopper expect. */
+	if (m1_device_stat.config.ism_band_region < M1_RADIO_REGION_COUNT)
+		m1_radio_policy_set_region(
+			(m1_radio_region_t)m1_device_stat.config.ism_band_region);
+
 	GPIO_InitTypeDef gpio_init_structure;
 
 	si4463_exti_hdl.Line = EXTI_LINE_12;
@@ -1260,6 +1267,18 @@ static bool subghz_transmit_static_signal(const SubGHz_History_Entry_t *entry)
 	{
 		m1_buzzer_notification();
 		m1_message_box(&m1_u8g2, "TX Blocked:", "Region restricts", "this frequency.", "Set Region to Off");
+		vPortFree(subghz_tx_encode_buf);
+		subghz_tx_encode_buf = NULL;
+		return false;
+	}
+
+	/* Hz-level policy gate: the data-driven tables in m1_radio_policy are the
+	 * TX authority (runtime region, settable via m1_radio_call REGION_SET).
+	 * Fails closed on any frequency outside the current region's bands. */
+	if (!m1_radio_tx_allowed(entry->frequency, m1_radio_policy_get_region()))
+	{
+		m1_buzzer_notification();
+		m1_message_box(&m1_u8g2, "TX Blocked:", "Frequency outside", "region bands.", "Check Radio Region");
 		vPortFree(subghz_tx_encode_buf);
 		subghz_tx_encode_buf = NULL;
 		return false;
