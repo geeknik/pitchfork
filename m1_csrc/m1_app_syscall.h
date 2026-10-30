@@ -228,4 +228,31 @@ void m1_ui_hook_notify(const char *msg, uint16_t duration_ms);
 int32_t m1_ui_call(uint32_t op, const void *req, uint16_t req_len,
                    void *resp, uint16_t resp_len);
 
+/* ========================================================================
+ *  Radio domain: m1_radio_call(op, req, req_len, resp, resp_len)
+ * ========================================================================
+ * Policy surface over the data-driven region tables (m1_radio_policy.c).
+ * The umbrella is deliberately read/policy-only in v1: TX enforcement
+ * happens at the kernel's Sub-GHz TX boundary, not by app request.
+ */
+
+enum {
+    M1_RADIO_OP_TX_ALLOWED  = 0, /* freq_hz in an allowed band of the current
+                                  * region? 1/0 (fail closed) */
+    M1_RADIO_OP_POWER_CLAMP = 1, /* clamp req->power to the region cap;
+                                  * returns the clamped value */
+    M1_RADIO_OP_REGION_GET  = 2, /* current region index as the return */
+    M1_RADIO_OP_REGION_SET  = 3, /* req->region; unknown regions -> BAD_ARG */
+};
+
+typedef struct __attribute__((packed)) {
+    m1_call_hdr_t hdr;
+    uint32_t freq_hz;
+    uint8_t  power;    /* 0..127 PA level */
+    uint8_t  region;   /* m1_radio_region_t */
+} m1_radio_req_t;
+
+int32_t m1_radio_call(uint32_t op, const void *req, uint16_t req_len,
+                      void *resp, uint16_t resp_len);
+
 #endif /* M1_APP_SYSCALL_H */

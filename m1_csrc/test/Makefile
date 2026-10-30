@@ -43,8 +43,8 @@ test-crash: test_m1_crash.c ../m1_crash_core.c
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_m1_crash.c ../m1_crash_core.c $(STUB_SRC)
 	./$@
 
-test-radio: test_m1_radio_policy.c ../m1_radio_policy.c
-	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_m1_radio_policy.c ../m1_radio_policy.c $(STUB_SRC)
+test-radio: test_m1_radio_policy.c ../m1_radio_policy.c ../m1_app_radio.c
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_m1_radio_policy.c ../m1_radio_policy.c ../m1_app_radio.c $(STUB_SRC)
 	./$@
 
 fuzz-elf: fuzz_m1_elf_loader.c $(ELF_SRC) host_stubs/ff.h

@@ -436,6 +436,7 @@ void m1_app_api_init(void)
         { "m1_sys_call",       (void *)m1_sys_call },
         { "m1_storage_call",   (void *)m1_storage_call },   /* m1_app_storage.c */
         { "m1_ui_call",        (void *)m1_ui_call },        /* m1_app_ui.c */
+        { "m1_radio_call",     (void *)m1_radio_call },     /* m1_app_radio.c */
 
         /* ===== Input ===== */
         { "game_poll_button",  (void *)game_poll_button },

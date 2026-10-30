@@ -6,7 +6,9 @@
  * clamping per region, and the runtime region selector. */
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
 #include "m1_radio_policy.h"
+#include "m1_app_syscall.h"
 
 static int g_failures;
 #define CHECK(cond) do { \
@@ -54,6 +56,41 @@ int main(void)
     CHECK(!m1_radio_tx_allowed(915000000, m1_radio_policy_get_region()));
     m1_radio_policy_set_region(M1_RADIO_REGION_NA);
     CHECK(m1_radio_tx_allowed(915000000, m1_radio_policy_get_region()));
+
+    /* --- m1_radio_call umbrella --- */
+    {
+        m1_radio_req_t r;
+        memset(&r, 0, sizeof(r));
+        r.hdr.size = sizeof(r);
+        r.hdr.version = M1_CALL_LAYOUT_V1;
+
+        m1_radio_policy_set_region(M1_RADIO_REGION_EU);
+        r.freq_hz = 915000000;
+        CHECK(m1_radio_call(M1_RADIO_OP_TX_ALLOWED, &r, sizeof(r), NULL, 0) == 0);
+        r.freq_hz = 868000000;
+        CHECK(m1_radio_call(M1_RADIO_OP_TX_ALLOWED, &r, sizeof(r), NULL, 0) == 1);
+
+        r.power = 127;
+        CHECK(m1_radio_call(M1_RADIO_OP_POWER_CLAMP, &r, sizeof(r), NULL, 0)
+              == M1_RADIO_POWER_CAP_EU);
+
+        CHECK(m1_radio_call(M1_RADIO_OP_REGION_GET, NULL, 0, NULL, 0) == M1_RADIO_REGION_EU);
+
+        r.region = M1_RADIO_REGION_NA;
+        CHECK(m1_radio_call(M1_RADIO_OP_REGION_SET, &r, sizeof(r), NULL, 0) == 0);
+        CHECK(m1_radio_call(M1_RADIO_OP_REGION_GET, NULL, 0, NULL, 0) == M1_RADIO_REGION_NA);
+        r.region = 77;
+        CHECK(m1_radio_call(M1_RADIO_OP_REGION_SET, &r, sizeof(r), NULL, 0) == M1_SYS_ERR_BAD_ARG);
+        m1_radio_policy_set_region(M1_RADIO_REGION_NA);
+
+        /* header validation + unknown op */
+        r.region = M1_RADIO_REGION_EU;
+        r.hdr.version = 2;
+        CHECK(m1_radio_call(M1_RADIO_OP_REGION_SET, &r, sizeof(r), NULL, 0) == M1_SYS_ERR_BAD_ARG);
+        r.hdr.version = M1_CALL_LAYOUT_V1;
+        CHECK(m1_radio_call(M1_RADIO_OP_REGION_SET, &r, 4, NULL, 0) == M1_SYS_ERR_BAD_ARG);
+        CHECK(m1_radio_call(99, &r, sizeof(r), NULL, 0) == M1_SYS_ERR_BAD_OP);
+    }
 
     if (g_failures == 0)
         printf("test_m1_radio_policy: ALL PASS\n");
