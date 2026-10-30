@@ -18,6 +18,14 @@
   (active/frames/dropped/bytes). Captures are companion-triggerable
   over USB CDC; the pcapng lands on SD, retrievable via `FILE_READ`.
 
+## [1.1.91] – 2026-10-30
+### Fixed
+- Stuck brain-monitor recovery (found live): if a session's deadline
+  teardown lost the `monitor_stop` race with a busy ESP, the brain stayed
+  in monitor mode and refused every later `CAPTURE_START` (`rc=-1`).
+  `CAPTURE_STOP` now clears the brain unconditionally even with no local
+  session, and failed monitor teardowns log a warning.
+
 <!-- Changelog discipline: every FW_VERSION bump gets its entry in the same
      change (user directive 2026-10-30; see STATUS.md §7a). -->
 

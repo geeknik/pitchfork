@@ -194,14 +194,22 @@ int m1_capsrc_start(uint8_t channel, uint32_t duration_ms)
 
 void m1_capsrc_stop(void)
 {
-    if (!s_cap.active)
+    if (!s_cap.active) {
+        /* No local session — but the brain may still be in monitor mode
+         * after a failed/raced teardown (deadline-stop with monitor_stop
+         * returning false left it stuck, refusing every later START).
+         * STOP is the recovery path: clear the brain unconditionally. */
+        if (!m1_esp_client_monitor_stop())
+            M1_LOG_W(TAG, "brain monitor_stop refused while inactive (still busy?)");
         return;
+    }
     s_cap.active = false;
     s_cap.stats.active = false;
 
     uint32_t total = 0, drop = 0; uint8_t buffered = 0;
     (void)m1_esp_client_monitor_stats(&total, &drop, &buffered);
-    (void)m1_esp_client_monitor_stop();
+    if (!m1_esp_client_monitor_stop())
+        M1_LOG_W(TAG, "brain monitor_stop failed at session end - issue STOP again to clear");
     capsrc_close_file(total, drop);
     s_cap.stats.dropped = drop;
     M1_LOG_I(TAG, "capture stop: %lu frames, brain total=%lu drop=%lu -> %s",
