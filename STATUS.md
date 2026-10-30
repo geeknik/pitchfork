@@ -294,7 +294,7 @@ the app runtime, menu engine, RPC stack, and tracked allocator.
 
 | STM32 firmware | ESP32 firmware | Link | Verified? |
 |---|---|---|---|
-| M1OS 1.1.80.0 | m1-esp32-brain **1.5.0** (`CMakeLists.txt:9`; wire semver in `main/main.c:160`) | SPI master/slave, 512 B framed MTU, protocol `0x4D31` v1 | **Wire-compatible** — sed-copied contract header, ~60 of 67 opcodes in active use. **Build not reproducible**: ESP-IDF unpinned, `sdkconfig` uncommitted, build scripts gitignored — tag a known-good 1.5.0 binary |
+| Pitchfork 1.1.86+ | m1-esp32-brain **1.5.0** (`CMakeLists.txt:9`) | SPI master/slave, 512 B framed MTU, protocol `0x4D31` v1 | **VERIFIED LIVE 2026-10-30**: RPC GET_DEVICE_INFO over USB CDC reports `m1_link 1.5.0` (link is lazy-init: a WiFi/BT feature must run once) |
 | Stock M1 0.8.1.0 | mtkcore 0.8.1.0 (build_id `0.8.1.0`, epoch 2026-10-01; `main/CMakeLists.txt:41-48`) | Factory UART4 ASCII + COBS capture channel | Version pairing consistent (same-day releases); STM32 persists ESP version in RTC DR2/DR3 |
 | M1OS 1.1.80.0 | mtkcore 0.8.1.0 | mtkcore's native SPI v1 transport (candidate) | Not built; requires porting `m1_esp_rpc` onto mtkcore's 113-opcode surface and pin/protocol verification against brain's SPI wiring |
 
