@@ -31,6 +31,10 @@ void game_apps_browser_run(void);
 /* Enumerate installed .m1app apps for RPC (qM App Catalog). The manager owns a
  * single cached snapshot: a scan refreshes it only when it has been marked dirty,
  * and all callers see copied entries rather than mutable internal pointers. */
+/* Supervision (see M1_SYS_OP_HEARTBEAT / CANCEL_POLL in m1_app_syscall.h). */
+bool m1_app_manager_heartbeat(void);
+bool m1_app_manager_cancel_requested(void);
+
 uint16_t m1_app_manager_scan(void);
 FRESULT  m1_app_manager_last_scan_result(void);
 bool     m1_app_manager_get(uint16_t idx,
