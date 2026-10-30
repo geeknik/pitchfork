@@ -1,5 +1,15 @@
 <!-- See COPYING.txt for license details. -->
 
+## [1.1.89] – 2026-10-30
+### Added
+- WiFi capture sessions over the SPI brain (`m1_capture_source`): pulls
+  buffered promiscuous frames from the brain's monitor interface, wraps
+  them through the ported stock codec chain (capframe → radiotap+EPB),
+  and writes pcapng files to `0:/wifi/mcap_NNN.pcapng` with SHB/IDB/ISB
+  (brain drop counters in the closing ISB). Session pump task, 50 ms
+  cadence, static buffers throughout. Headless API ready for RPC/UI
+  wiring (next).
+
 <!-- Changelog discipline: every FW_VERSION bump gets its entry in the same
      change (user directive 2026-10-30; see STATUS.md §7a). -->
 

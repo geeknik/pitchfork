@@ -70,7 +70,7 @@ typedef struct {
 
 #define FW_VERSION_MAJOR   			1
 #define FW_VERSION_MINOR   			1
-#define FW_VERSION_BUILD   			88
+#define FW_VERSION_BUILD   			89
 #define FW_VERSION_RC   			0
 
 /* Recovery FW: its own independent "<major>.<minor>" line, separate from the

@@ -9,6 +9,7 @@ typedef void *TaskHandle_t;
 typedef void *QueueHandle_t;
 
 #define pdMS_TO_TICKS(ms) (ms)
+#define pdPASS 1
 static inline void *pvPortMalloc(size_t n) { return malloc(n); }
 static inline void vPortFree(void *p) { free(p); }
 static inline size_t xPortGetFreeHeapSize(void) { return 64 * 1024; }
