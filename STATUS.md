@@ -273,6 +273,15 @@ the app runtime, menu engine, RPC stack, and tracked allocator.
     512→384. Lesson recorded: host tests cannot catch boot-task stack-depth faults;
     boot-path code gets static buffers, and the RTCAPB clock theory was disproven
     (TAMP is accessible without explicit clock enable on this part).
+11b. **Lifecycle supervision design decision (2026-10-30):** the watchdog
+    report table cannot supervise app tasks without either doing nothing
+    (apps cannot send reports mid-run) or imposing a hard runtime cap that
+    kills legitimate long sessions (capture soaks, Signal Atlas). Hung-app
+    recovery therefore belongs to cooperative cancellation + an SDK
+    heartbeat op (m1_ui_call-style) + force-kill-safe teardown, designed as
+    the next tranche. Also noted: stock's `usbmsc_sd_enable` SD/MSC gate
+    does not exist under that name in this tree — the detect-task/remount
+    race audit needs a fresh pass against Pitchfork's own MSC path.
 12. **Firmware cross-build restored on this Mac** (xPack arm-none-eabi GCC
    14.2.1): full image builds clean, zero warnings in the new modules,
    `wCRC` image at 1,047,616 B — note flash headroom is now < 2 KB against
