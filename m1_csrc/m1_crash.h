@@ -27,6 +27,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "m1_crash_core.h"    /* m1_crash_info_t used by the record API */
 
 void m1_crash_boot_capture(void);         /* before RSR is cleared, once */
 void m1_crash_persist_if_pending(void);   /* after SD mounts; idempotent */
