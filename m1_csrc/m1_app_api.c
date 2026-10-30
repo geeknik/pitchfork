@@ -28,6 +28,7 @@
 #include "m1_elf_loader.h"
 #include "m1_app_api.h"
 #include "m1_app_syscall.h"
+#include "m1_app_manager.h"
 #include "m1_games.h"
 #include "m1_log_debug.h"
 #include "u8g2.h"
@@ -310,6 +311,8 @@ static int32_t m1_sys_call(uint32_t op, void *args)
         case M1_SYS_OP_API_LEVEL: return (int32_t)M1_APP_API_VERSION;
         case M1_SYS_OP_HEAP_FREE: return (int32_t)xPortGetFreeHeapSize();
         case M1_SYS_OP_UPTIME_MS: return (int32_t)HAL_GetTick();
+        case M1_SYS_OP_HEARTBEAT: return m1_app_manager_heartbeat() ? 1 : 0;
+        case M1_SYS_OP_CANCEL_POLL: return m1_app_manager_cancel_requested() ? 1 : 0;
         default:                  return M1_SYS_ERR_BAD_OP;
     }
 }

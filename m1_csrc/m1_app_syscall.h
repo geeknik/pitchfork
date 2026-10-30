@@ -44,6 +44,11 @@ enum {
     M1_SYS_OP_API_LEVEL = 0,   /* kernel app-API level (M1_APP_API_VERSION) */
     M1_SYS_OP_HEAP_FREE = 1,   /* free system heap, in bytes */
     M1_SYS_OP_UPTIME_MS = 2,   /* milliseconds since boot */
+    M1_SYS_OP_HEARTBEAT = 3,   /* supervised app: "still alive" (resets the
+                                * hang grace; 1 when accepted, 0 if no app) */
+    M1_SYS_OP_CANCEL_POLL = 4, /* 1 when the kernel asked this app to exit;
+                                * a well-behaved loop checks this and returns
+                                * from app_main promptly */
 };
 
 /* ========================================================================

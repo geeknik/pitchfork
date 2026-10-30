@@ -177,3 +177,32 @@ void m1_crash_persist_if_pending(void)
         /* leave pending + magic intact: next mount retries once */
     }
 }
+
+void m1_crash_record_runtime(const m1_crash_info_t *ci)
+{
+    static char buf[M1_CRASH_BUF_MAX];
+    static char path[40];
+    static FIL f;
+
+    size_t len = m1_crash_format(buf, sizeof(buf), ci);
+    if (len == 0)
+        return;
+
+    f_mkdir("0:/System");
+    FRESULT fr = f_mkdir(M1_CRASH_DIR);
+    if (fr != FR_OK && fr != FR_EXIST)
+        return;
+
+    int slot = m1_crash_next_slot(read_last_slot(), slot_exists);
+    snprintf(path, sizeof(path), M1_CRASH_SLOT_FMT, slot);
+    fr = f_open(&f, path, FA_WRITE | FA_CREATE_ALWAYS);
+    if (fr != FR_OK)
+        return;
+    UINT written = 0;
+    fr = f_write(&f, buf, len, &written);
+    if (fr == FR_OK)
+        fr = f_sync(&f);
+    f_close(&f);
+    M1_LOG_W(TAG, "runtime record: %s (kind=%d written=%lu)",
+             path, (int)ci->kind, (unsigned long)written);
+}

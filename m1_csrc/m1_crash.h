@@ -38,4 +38,9 @@ void m1_crash_note_app(const char *app_name);
 /* True when the pending buffer holds an unrecorded fault/watchdog event. */
 bool m1_crash_pending(void);
 
+/* Record a runtime-detected event (e.g. a contained hung app) into the same
+ * bounded ring, independent of the boot-time capture. Any task may call it:
+ * all buffers are static (boot-path stack rule). */
+void m1_crash_record_runtime(const m1_crash_info_t *ci);
+
 #endif /* M1_CRASH_H */

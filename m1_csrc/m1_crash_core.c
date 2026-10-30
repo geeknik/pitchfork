@@ -11,6 +11,7 @@ static const char *kind_str(m1_crash_kind_t k)
     switch (k) {
     case M1_CRASH_KIND_HARDFAULT: return "hardfault";
     case M1_CRASH_KIND_WATCHDOG:  return "watchdog";
+    case M1_CRASH_KIND_HUNG:      return "hung";
     default:                      return "unknown";
     }
 }

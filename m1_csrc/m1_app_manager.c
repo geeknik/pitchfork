@@ -27,6 +27,7 @@
 #include "m1_ui_focus.h"
 #include "m1_esp_lease.h"
 #include "m1_crash.h"
+#include "m1_crash_core.h"
 #include "m1_elf_loader.h"
 #include "m1_app_api.h"
 #include "m1_system.h"
@@ -42,6 +43,7 @@
 /*************************** D E F I N E S ************************************/
 
 #define TAG "APPMGR"
+#define M1_APP_HANG_GRACE_MS 60000  /* supervised app silence before containment */
 
 #define APPS_DIR              "0:/apps"
 #define APPS_EXTENSION        ".m1app"
@@ -86,6 +88,17 @@ typedef struct {
     TaskHandle_t task_handle;
     TaskHandle_t caller_handle;
     volatile bool running;
+    /* Supervision (api >= 7 apps): the app heartbeats via m1_sys_call; if it
+     * goes silent past the grace window the parent CONTAINS it — suspend,
+     * revoke its ESP lease + display focus by handle, write a "hung" crash
+     * record naming it, and return to the menu. The app task is deliberately
+     * NOT force-deleted: vTaskDelete can land mid-allocation inside the
+     * tracked-heap list and corrupt it. A contained app stays a suspended
+     * zombie holding its ELF+heap; running stays true so no other app
+     * launches until reboot. The device stays usable. */
+    bool supervised;
+    volatile bool cancel_requested;   /* kernel asked the app to exit */
+    volatile uint32_t last_hb;        /* tick of the last heartbeat */
 } app_run_ctx_t;
 
 /***************************** V A R I A B L E S ******************************/
@@ -140,6 +153,19 @@ void m1_app_manager_init(void)
  * performed after an app-directory mutation; otherwise this returns the cached
  * snapshot without touching the SD card. */
 /*============================================================================*/
+bool m1_app_manager_heartbeat(void)
+{
+    if (!s_run_ctx.running)
+        return false;
+    s_run_ctx.last_hb = xTaskGetTickCount();
+    return true;
+}
+
+bool m1_app_manager_cancel_requested(void)
+{
+    return s_run_ctx.running && s_run_ctx.cancel_requested;
+}
+
 uint16_t m1_app_manager_scan(void)
 {
     uint16_t count;
@@ -758,6 +784,10 @@ static elf_load_status_t apps_run(const char *path)
     s_run_ctx.running = true;
 
     /* Create the app task */
+    s_run_ctx.supervised = (s_run_ctx.elf.manifest.api_version >= 7);
+    s_run_ctx.cancel_requested = false;
+    s_run_ctx.last_hb = xTaskGetTickCount();
+
     xret = xTaskCreate(app_task_wrapper,
                        s_run_ctx.elf.manifest.name,
                        (uint16_t)stack_words,
@@ -774,6 +804,12 @@ static elf_load_status_t apps_run(const char *path)
         return ELF_ERR_NO_MEMORY;
     }
 
+    if (s_run_ctx.running)
+    {
+        M1_LOG_E(TAG, "previous app is hung/contained - reboot required");
+        return ELF_ERR_NO_MEMORY;
+    }
+
     /* Wait for the app task to complete. App input belongs to the app task:
      * it may need BACK to stop a radio, flush a file, or release a BLE link
      * before returning. The former parent-side BACK check raced that cleanup
@@ -786,6 +822,31 @@ static elf_load_status_t apps_run(const char *path)
 
         if (!s_run_ctx.running)
             break;
+
+        if (s_run_ctx.supervised &&
+            (xTaskGetTickCount() - s_run_ctx.last_hb) > pdMS_TO_TICKS(M1_APP_HANG_GRACE_MS))
+        {
+            void *tok = (void *)s_run_ctx.task_handle;
+            M1_LOG_E(TAG, "app hung (no heartbeat for %d ms) - containing",
+                     (int)M1_APP_HANG_GRACE_MS);
+            vTaskSuspend(s_run_ctx.task_handle);
+            int stopped = m1_esp_lease_revoke(tok);
+            (void)m1_ui_focus_revoke(tok);
+
+            m1_crash_info_t ci;
+            memset(&ci, 0, sizeof(ci));
+            ci.kind = M1_CRASH_KIND_HUNG;
+            ci.uptime_ms = xTaskGetTickCount();
+            snprintf(ci.app, sizeof(ci.app), "%s", s_run_ctx.elf.manifest.name);
+            m1_crash_record_runtime(&ci);
+            if (stopped > 0)
+                M1_LOG_W(TAG, "hung app had %d radio op(s) stopped", stopped);
+
+            /* Zombie holds the ELF + tracked heap until reboot; skip the
+             * normal cleanup below - it is only safe after a real exit. */
+            xQueueReset(main_q_hdl);
+            return ELF_OK;
+        }
     }
 
     /* Cleanup */

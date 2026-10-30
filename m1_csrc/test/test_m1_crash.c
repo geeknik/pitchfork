@@ -70,6 +70,11 @@ static void test_format(void)
     n = m1_crash_format(buf, sizeof(buf), &ci);
     CHECK(strstr(buf, "kind=watchdog") != NULL);
 
+    ci.kind = M1_CRASH_KIND_HUNG;
+    n = m1_crash_format(buf, sizeof(buf), &ci);
+    CHECK(strstr(buf, "kind=hung") != NULL);
+    CHECK(strstr(buf, "app=") != NULL);
+
     /* truncation contract: too-small buffer reports 0, never half a record */
     char tiny[16];
     CHECK(m1_crash_format(tiny, sizeof(tiny), &ci) == 0);

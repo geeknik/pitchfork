@@ -29,6 +29,7 @@ typedef enum {
     M1_CRASH_KIND_NONE = 0,
     M1_CRASH_KIND_HARDFAULT,
     M1_CRASH_KIND_WATCHDOG,
+    M1_CRASH_KIND_HUNG,        /* supervised app contained by the manager */
 } m1_crash_kind_t;
 
 typedef struct {
