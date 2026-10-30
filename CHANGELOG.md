@@ -40,6 +40,15 @@
   now calls `m1_esp32_init()` itself (idempotent) so `CAPTURE_START`
   works on a fresh boot without opening a radio feature first.
 
+### Foundation (2026-10-30)
+- M1 Capture Envelope core (`m1_capture_envelope`): the thesis's
+  canonical record — session ids, `/Sessions/<stamp>-<id>` directory
+  naming (leap-year-correct civil-time conversion, libc-free),
+  key=value envelope formatting (13 stable keys, additive-only,
+  NULL-safe, truncation contract). Host-tested; device integration
+  (WiFi captures write envelopes + crc32c artifact hashes at session
+  end) follows next.
+
 <!-- Changelog discipline: every FW_VERSION bump gets its entry in the same
      change (user directive 2026-10-30; see STATUS.md §7a). -->
 
