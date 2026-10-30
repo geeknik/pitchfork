@@ -19,9 +19,9 @@ STUB_SRC = host_stubs/host_stubs.c
 STO_SRC = ../m1_app_storage.c
 ELF_SRC = ../m1_elf_loader.c
 
-.PHONY: test test-storage test-elf test-ui test-lease test-crash fuzz-elf clean
+.PHONY: test test-storage test-elf test-ui test-lease test-crash test-radio fuzz-elf clean
 
-test: test-storage test-elf test-ui test-lease test-crash
+test: test-storage test-elf test-ui test-lease test-crash test-radio
 
 test-storage: test_m1_app_storage.c $(STO_SRC) host_stubs/ff.h
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_m1_app_storage.c $(STO_SRC) $(STUB_SRC)
@@ -41,6 +41,10 @@ test-lease: test_m1_esp_lease.c ../m1_esp_lease.c
 
 test-crash: test_m1_crash.c ../m1_crash_core.c
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_m1_crash.c ../m1_crash_core.c $(STUB_SRC)
+	./$@
+
+test-radio: test_m1_radio_policy.c ../m1_radio_policy.c
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_m1_radio_policy.c ../m1_radio_policy.c $(STUB_SRC)
 	./$@
 
 fuzz-elf: fuzz_m1_elf_loader.c $(ELF_SRC) host_stubs/ff.h

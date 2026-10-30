@@ -641,6 +641,7 @@ set(M1_SRCS
     ../../m1_csrc/m1_elf_loader.c
     ../../m1_csrc/m1_app_storage.c
     ../../m1_csrc/m1_ui_focus.c
+    ../../m1_csrc/m1_radio_policy.c
     ../../m1_csrc/m1_app_ui.c
     ../../m1_csrc/m1_esp_lease.c
     ../../m1_csrc/m1_crash.c
@@ -805,6 +806,7 @@ if(RECOVERY)
         ../../m1_csrc/m1_elf_loader.c
         ../../m1_csrc/m1_app_storage.c
         ../../m1_csrc/m1_ui_focus.c
+        ../../m1_csrc/m1_radio_policy.c
         ../../m1_csrc/m1_app_ui.c
         ../../m1_csrc/m1_esp_lease.c
         ../../m1_csrc/m1_crash.c
