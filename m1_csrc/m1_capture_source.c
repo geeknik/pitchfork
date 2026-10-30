@@ -26,6 +26,8 @@ void m1_esp32_init(void);            /* host: stubbed by the test */
 #include "m1_capture_frame.h"
 #include "m1_capture_pcap.h"
 #include "m1_pcapng.h"
+#include "m1_capture_envelope.h"
+#include "m1_crc32c.h"
 
 /*************************** D E F I N E S ************************************/
 
@@ -203,6 +205,73 @@ int m1_capsrc_start(uint8_t channel, uint32_t duration_ms)
     return 0;
 }
 
+/* Close the session with a canonical Capture Envelope: /Sessions tree,
+ * crc32c integrity hash over the artifact, key=value record beside it.
+ * Static buffers throughout (runs on the pump task's 2 KB stack). */
+static void capsrc_write_envelope(void)
+{
+    static char dir[M1_ENV_DIR_MAX];
+    static char epath[M1_ENV_DIR_MAX + 24];
+    static char ebuf[1024];
+    static uint8_t hashbuf[512];
+    static FIL hf;
+    char sid[M1_ENV_SESSION_ID_LEN];
+
+    /* Wall clock awaits the RTC work (STATUS known-issue): sessions stamp
+     * monotonically (tick) and correlate by session_id; the stamp format
+     * upgrades to calendar time later without breaking readers. */
+    m1_env_session_id(sid, xTaskGetTickCount(), s_cap.stats.frames);
+    snprintf(dir, sizeof(dir), "/Sessions/s%lu-%s",
+             (unsigned long)xTaskGetTickCount(), sid);
+    f_mkdir("/Sessions");
+    f_mkdir(dir);
+
+    uint32_t crc = 0;
+    if (f_open(&hf, s_cap.path, FA_READ) == FR_OK) {
+        UINT got = 0;
+        for (;;) {
+            FRESULT fr = f_read(&hf, hashbuf, sizeof(hashbuf), &got);
+            if (fr != FR_OK || got == 0)
+                break;
+            crc = m1_crc32c_update(crc, hashbuf, got);
+        }
+        f_close(&hf);
+    }
+
+    char params[64];
+    snprintf(params, sizeof(params), "chan:%u,frames:%lu",
+             s_cap.channel, (unsigned long)s_cap.stats.frames);
+
+    m1_envelope_t e;
+    memset(&e, 0, sizeof(e));
+    e.record_id = 1;
+    e.session_id = sid;
+    e.timestamp_monotonic_ms = xTaskGetTickCount();
+    e.source_domain = "wifi";
+    e.capture_parameters = params;
+    e.raw_artifact_ref = s_cap.path;
+    e.decoder_candidates = "radiotap";
+    e.confidence_pm = 1000;         /* raw observation, uninterpreted */
+    e.device_entity_id = "-";
+    e.parent_record_id = -1;
+    e.operator_annotation = "-";
+    e.integrity_crc32c = crc;
+
+    size_t n = m1_env_format(ebuf, sizeof(ebuf), &e);
+    if (n == 0)
+        return;
+    snprintf(epath, sizeof(epath), "%s/captures/1.m1env", dir);
+    FIL ef;
+    if (f_open(&ef, epath, FA_WRITE | FA_CREATE_ALWAYS) == FR_OK) {
+        UINT w = 0;
+        f_write(&ef, ebuf, n, &w);
+        f_sync(&ef);
+        f_close(&ef);
+        M1_LOG_I(TAG, "envelope: %s (crc32c:%08lX)",
+                 epath, (unsigned long)crc);
+    }
+}
+
 void m1_capsrc_stop(void)
 {
     if (!s_cap.active) {
@@ -223,6 +292,7 @@ void m1_capsrc_stop(void)
         M1_LOG_W(TAG, "brain monitor_stop failed at session end - issue STOP again to clear");
     capsrc_close_file(total, drop);
     s_cap.stats.dropped = drop;
+    capsrc_write_envelope();
     M1_LOG_I(TAG, "capture stop: %lu frames, brain total=%lu drop=%lu -> %s",
              (unsigned long)s_cap.stats.frames,
              (unsigned long)total, (unsigned long)drop, s_cap.path);

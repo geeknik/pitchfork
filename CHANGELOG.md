@@ -49,6 +49,15 @@
   (WiFi captures write envelopes + crc32c artifact hashes at session
   end) follows next.
 
+## [1.1.93] – 2026-10-30
+### Added
+- WiFi capture sessions close into the session model: session id minted,
+  `/Sessions/s<tick>-<id>/captures/` created, the pcapng artifact hashed
+  with CRC-32C, and a canonical Capture Envelope (`captures/1.m1env`)
+  written — 13 stable keys incl. source domain, capture parameters,
+  artifact reference, and integrity hash. Tick-stamp naming until the
+  RTC lands; correlation is by session_id.
+
 <!-- Changelog discipline: every FW_VERSION bump gets its entry in the same
      change (user directive 2026-10-30; see STATUS.md §7a). -->
 
