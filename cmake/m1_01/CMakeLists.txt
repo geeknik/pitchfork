@@ -643,6 +643,14 @@ set(M1_SRCS
     ../../m1_csrc/m1_ui_focus.c
     ../../m1_csrc/m1_radio_policy.c
     ../../m1_csrc/m1_app_radio.c
+    ../../m1_csrc/m1_capture_frame.c
+    ../../m1_csrc/m1_capture_pcap.c
+    ../../m1_csrc/m1_pcapng.c
+    ../../m1_csrc/m1_radiotap.c
+    ../../m1_csrc/m1_capture_scan_parse.c
+    ../../m1_csrc/m1_capture_transport.c
+    ../../m1_csrc/m1_cobs.c
+    ../../m1_csrc/m1_crc32c.c
     ../../m1_csrc/m1_app_ui.c
     ../../m1_csrc/m1_esp_lease.c
     ../../m1_csrc/m1_crash.c
@@ -809,6 +817,14 @@ if(RECOVERY)
         ../../m1_csrc/m1_ui_focus.c
         ../../m1_csrc/m1_radio_policy.c
         ../../m1_csrc/m1_app_radio.c
+        ../../m1_csrc/m1_capture_frame.c
+        ../../m1_csrc/m1_capture_pcap.c
+        ../../m1_csrc/m1_pcapng.c
+        ../../m1_csrc/m1_radiotap.c
+        ../../m1_csrc/m1_capture_scan_parse.c
+        ../../m1_csrc/m1_capture_transport.c
+        ../../m1_csrc/m1_cobs.c
+        ../../m1_csrc/m1_crc32c.c
         ../../m1_csrc/m1_app_ui.c
         ../../m1_csrc/m1_esp_lease.c
         ../../m1_csrc/m1_crash.c

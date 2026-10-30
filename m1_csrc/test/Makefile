@@ -19,9 +19,9 @@ STUB_SRC = host_stubs/host_stubs.c
 STO_SRC = ../m1_app_storage.c
 ELF_SRC = ../m1_elf_loader.c
 
-.PHONY: test test-storage test-elf test-ui test-lease test-crash test-radio fuzz-elf clean
+.PHONY: test test-storage test-elf test-ui test-lease test-crash test-radio test-capframe test-captransport test-cappcap test-cappcapng test-capscan fuzz-elf clean
 
-test: test-storage test-elf test-ui test-lease test-crash test-radio
+test: test-storage test-elf test-ui test-lease test-crash test-radio test-capframe test-captransport test-cappcap test-cappcapng test-capscan
 
 test-storage: test_m1_app_storage.c $(STO_SRC) host_stubs/ff.h
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_m1_app_storage.c $(STO_SRC) $(STUB_SRC)
@@ -45,6 +45,27 @@ test-crash: test_m1_crash.c ../m1_crash_core.c
 
 test-radio: test_m1_radio_policy.c ../m1_radio_policy.c ../m1_app_radio.c
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_m1_radio_policy.c ../m1_radio_policy.c ../m1_app_radio.c $(STUB_SRC)
+	./$@
+
+# Stock capture-stack suites (imported 2026-10-30; pure codecs, no stubs needed)
+test-capframe: m1_capture_frame_test.c ../m1_capture_frame.c
+	$(CC) $(CFLAGS) -I.. -o $@ m1_capture_frame_test.c ../m1_capture_frame.c
+	./$@
+
+test-captransport: m1_capture_transport_test.c ../m1_capture_transport.c ../m1_cobs.c ../m1_crc32c.c
+	$(CC) $(CFLAGS) -I.. -o $@ m1_capture_transport_test.c ../m1_capture_transport.c ../m1_cobs.c ../m1_crc32c.c
+	./$@
+
+test-cappcap: m1_capture_pcap_test.c ../m1_capture_pcap.c
+	$(CC) $(CFLAGS) -I.. -o $@ m1_capture_pcap_test.c ../m1_capture_pcap.c ../m1_pcapng.c ../m1_radiotap.c ../m1_capture_frame.c
+	./$@
+
+test-cappcapng: m1_pcapng_test.c ../m1_pcapng.c
+	$(CC) $(CFLAGS) -I.. -o $@ m1_pcapng_test.c ../m1_pcapng.c ../m1_radiotap.c
+	./$@
+
+test-capscan: m1_capture_scan_parse_test.c ../m1_capture_scan_parse.c
+	$(CC) $(CFLAGS) -I.. -o $@ m1_capture_scan_parse_test.c ../m1_capture_scan_parse.c
 	./$@
 
 fuzz-elf: fuzz_m1_elf_loader.c $(ELF_SRC) host_stubs/ff.h
