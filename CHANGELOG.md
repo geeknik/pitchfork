@@ -34,6 +34,12 @@
   selftest enforcing them. Live-verified end to end: remote 12 s capture
   on ch6 → 105 frames → pcapng pulled to host with valid SHB.
 
+## [1.1.92] – 2026-10-30
+### Fixed
+- Headless captures no longer depend on UI history: the capture engine
+  now calls `m1_esp32_init()` itself (idempotent) so `CAPTURE_START`
+  works on a fresh boot without opening a radio feature first.
+
 <!-- Changelog discipline: every FW_VERSION bump gets its entry in the same
      change (user directive 2026-10-30; see STATUS.md §7a). -->
 

@@ -17,6 +17,7 @@
 #include "ff.h"
 #include "m1_log_debug.h"
 #include "m1_esp_client.h"
+#include "m1_esp32_hal.h"   /* m1_esp32_init: bring the lazy link up */
 #include "m1_capture_source.h"
 #include "m1_capture_frame.h"
 #include "m1_capture_pcap.h"
@@ -146,6 +147,12 @@ int m1_capsrc_start(uint8_t channel, uint32_t duration_ms)
         return -3;
     if (duration_ms == 0 || duration_ms > M1_CAPSRC_MAX_MS)
         duration_ms = M1_CAPSRC_MAX_MS;
+
+    /* The ESP link is lazy-initialized (menu paths bring it up on first
+     * radio use). A headless capture must not depend on UI history: bring
+     * the link up ourselves. m1_esp32_init() is guarded/idempotent, so this
+     * is free when the link is already up. */
+    m1_esp32_init();
 
     int rc = m1_esp_client_monitor_start(channel);
     if (rc != 0)
