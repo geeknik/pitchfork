@@ -23,6 +23,7 @@
 #include "cmsis_os.h"
 #include "m1_sdcard.h"
 #include "m1_crash.h"
+#include "m1_capture_source.h"
 
 /*************************** D E F I N E S ************************************/
 
@@ -1244,6 +1245,18 @@ void sdcard_detection_task(void *param)
 			switch ( q_item.q_evt_type )
 			{
 				case Q_EVENT_SDCARD_CHANGE:
+			        /* Capture-session guard: a mid-write session must not be torn
+			         * down by a bouncing detect line. While a session is active
+			         * AND the card still reads present, swallow the edge (logged).
+			         * A genuinely absent card still propagates — the session will
+			         * fail loudly at its next write. (Live-caused 2026-10-30: a
+			         * spurious edge unmounted FatFs mid-capture, killing the
+			         * envelope write and dropping USB.) */
+			        if ( m1_capsrc_active() && m1_sd_detected() )
+			        {
+			            M1_LOG_W(M1_LOGDB_TAG, "SD edge ignored: capture active, card present\r\n");
+			            break;
+			        }
 			        /* WARN so it survives default verbosity: records every raw card-
 			         * detect edge (PD15 level + current status) so a false/bouncing
 			         * edge is visible in the captured log. */

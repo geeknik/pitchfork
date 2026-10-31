@@ -52,6 +52,7 @@ typedef struct {
     FIL         file;
     char        path[32];
     m1_capsrc_stats_t stats;
+    uint8_t     env_status;   /* 0 none, 1 written, 2 mkdir-fail, 3 open-fail, 4 format-fail */
     uint32_t    frame_seq;
 } capsrc_ctx_t;
 
@@ -188,6 +189,7 @@ int m1_capsrc_start(uint8_t channel, uint32_t duration_ms)
 
     memset(&s_cap.stats, 0, sizeof(s_cap.stats));
     s_cap.stats.active = true;
+    s_cap.env_status = 0;
     s_cap.channel = channel;
     s_cap.deadline_ms = xTaskGetTickCount() + duration_ms;
     s_cap.frame_seq = 0;
@@ -225,8 +227,10 @@ static void capsrc_write_envelope(void)
              (unsigned long)xTaskGetTickCount(), sid);
     FRESULT mr;
     mr = f_mkdir("0:/Sessions");
-    if (mr != FR_OK && mr != FR_EXIST)
+    if (mr != FR_OK && mr != FR_EXIST) {
         M1_LOG_E(TAG, "envelope: mkdir 0:/Sessions failed (%d)", (int)mr);
+        s_cap.env_status = 2;
+    }
     mr = f_mkdir(dir);
     if (mr != FR_OK && mr != FR_EXIST)
         M1_LOG_E(TAG, "envelope: mkdir %s failed (%d)", dir, (int)mr);
@@ -269,13 +273,16 @@ static void capsrc_write_envelope(void)
     e.integrity_crc32c = crc;
 
     size_t n = m1_env_format(ebuf, sizeof(ebuf), &e);
-    if (n == 0)
+    if (n == 0) {
+        s_cap.env_status = 4;
         return;
+    }
     snprintf(epath, sizeof(epath), "%s/captures/1.m1env", dir);
     static FIL ef;
     FRESULT fr2 = f_open(&ef, epath, FA_WRITE | FA_CREATE_ALWAYS);
     if (fr2 != FR_OK) {
         M1_LOG_E(TAG, "envelope: open %s failed (%d)", epath, (int)fr2);
+        s_cap.env_status = 3;
         return;
     }
     {
@@ -285,6 +292,7 @@ static void capsrc_write_envelope(void)
         f_close(&ef);
         M1_LOG_I(TAG, "envelope: %s (crc32c:%08lX)",
                  epath, (unsigned long)crc);
+        s_cap.env_status = 1;
     }
 }
 
@@ -316,8 +324,15 @@ void m1_capsrc_stop(void)
 
 void m1_capsrc_get_stats(m1_capsrc_stats_t *out)
 {
-    if (out)
+    if (out) {
         *out = s_cap.stats;
+        out->env_status = s_cap.env_status;
+    }
+}
+
+bool m1_capsrc_active(void)
+{
+    return s_cap.active;
 }
 
 /* ---- pure derivations (host-tested) ---- */

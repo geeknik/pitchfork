@@ -159,9 +159,10 @@ def cmd_capture(m, a):
         p = m.rpc(CAPTURE_STATS, wait=2.0)
         if not p or len(p) < 13:
             print("no stats"); return 1
-        print("active=%d frames=%d dropped=%d bytes=%d" %
+        env = p[13] if len(p) > 13 else -1
+        print("active=%d frames=%d dropped=%d bytes=%d env_status=%d" %
               (p[0], int.from_bytes(p[1:5], "little"),
-               int.from_bytes(p[5:9], "little"), int.from_bytes(p[9:13], "little")))
+               int.from_bytes(p[5:9], "little"), int.from_bytes(p[9:13], "little"), env))
         return 0
 
 def cmd_pull(m, a):

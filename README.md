@@ -42,7 +42,7 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full design.
 
 ## Status
 
-**Active runtime, 1.1-series.** Current version **1.1.94.0**. Pitchfork (then M1OS) was seeded
+**Active runtime, 1.1-series.** Current version **1.1.95.0**. Pitchfork (then M1OS) was seeded
 from the fully-bundled `m1-firmware` at `v0.8.0.0-C3.148` (2026-07-28) and has
 since diverged deliberately: it ships the `.m1app` ELF app runtime (API level
 5, 544 exported symbols), user-customizable SD-driven menus, an RPC stack with

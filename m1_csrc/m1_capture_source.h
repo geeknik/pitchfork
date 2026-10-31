@@ -27,6 +27,7 @@ typedef struct {
     uint32_t dropped;     /* brain-side drops (its counter) */
     uint16_t bytes;       /* payload bytes written          */
     bool     active;
+    uint8_t  env_status;  /* 0 none, 1 written, 2 mkdir-fail, 3 open-fail, 4 format-fail */
 } m1_capsrc_stats_t;
 
 /* Start a session: monitor on `channel` (0 = hop 1-13), write for
@@ -38,6 +39,9 @@ int m1_capsrc_start(uint8_t channel, uint32_t duration_ms);
 void m1_capsrc_stop(void);
 
 void m1_capsrc_get_stats(m1_capsrc_stats_t *out);
+
+/* True while a capture session is running — gates SD remount handling. */
+bool m1_capsrc_active(void);
 
 /* Pure helper (host-tested): derive capframe meta fields from a raw 802.11
  * frame's first bytes + capture context. */

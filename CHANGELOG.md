@@ -67,6 +67,18 @@
   (the live verification caught all three: no session dir appeared and
   the hash contract was wrong).
 
+## [1.1.95] – 2026-10-30
+### Fixed
+- **SD detect-edge guard for capture sessions** (live-caught): a
+  spurious/bouncing card-detect edge mid-capture unmounted FatFs,
+  silently killing the envelope write and dropping USB. While a session
+  is active and the card reads present, the edge is swallowed (logged);
+  genuine removal still propagates.
+### Added
+- `CAPTURE_STATS` now reports `env_status` (0 none, 1 written, 2
+  mkdir-fail, 3 open-fail, 4 format-fail) so envelope outcomes are
+  visible over RPC instead of buried in UART logs. m1ctl prints it.
+
 <!-- Changelog discipline: every FW_VERSION bump gets its entry in the same
      change (user directive 2026-10-30; see STATUS.md §7a). -->
 

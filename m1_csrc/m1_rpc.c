@@ -623,7 +623,7 @@ static void rpc_handle_capture_stats(const S_RPC_Frame *f)
 {
     m1_capsrc_stats_t st;
     m1_capsrc_get_stats(&st);
-    uint8_t buf[13];
+    uint8_t buf[14];
     buf[0] = st.active ? 1 : 0;
     buf[1] = (uint8_t)(st.frames);
     buf[2] = (uint8_t)(st.frames >> 8);
@@ -637,6 +637,7 @@ static void rpc_handle_capture_stats(const S_RPC_Frame *f)
     buf[10] = (uint8_t)(st.bytes >> 8);
     buf[11] = (uint8_t)(st.bytes >> 16);
     buf[12] = (uint8_t)(st.bytes >> 24);
+    buf[13] = st.env_status;
     m1_rpc_send_resp(RPC_CMD_CAPTURE_STATS_RESP, f->seq, buf, sizeof(buf));
 }
 
