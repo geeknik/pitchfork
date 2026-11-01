@@ -105,6 +105,7 @@ static void capsrc_close_file(uint32_t brain_total, uint32_t brain_drop)
 static void capsrc_task(void *param)
 {
     (void)param;
+    M1_LOG_I(TAG, "pump up (stack 4KB)");
     m1_capframe_meta_t meta;
 
     while (s_cap.active && xTaskGetTickCount() < s_cap.deadline_ms) {
@@ -148,7 +149,9 @@ static void capsrc_task(void *param)
             vTaskDelay(pdMS_TO_TICKS(M1_CAPSRC_POLL_MS));
         }
     }
+    M1_LOG_I(TAG, "deadline reached: tearing down");
     m1_capsrc_stop();
+    M1_LOG_I(TAG, "teardown complete");
     vTaskDelete(NULL);
 }
 
@@ -199,7 +202,7 @@ int m1_capsrc_start(uint8_t channel, uint32_t duration_ms)
     s_cap.frame_seq = 0;
     s_cap.active = true;
 
-    if (xTaskCreate(capsrc_task, "m1_capsrc", 512, NULL, 3,
+    if (xTaskCreate(capsrc_task, "m1_capsrc", 1024, NULL, 3,
                     &s_cap.task) != pdPASS) {
         s_cap.active = false;
         f_close(&s_cap.file);
@@ -221,7 +224,7 @@ static void capsrc_write_envelope(void)
     static char ebuf[1024];
     static uint8_t hashbuf[512];
     static FIL hf;
-    char sid[M1_ENV_SESSION_ID_LEN];
+    static char sid[M1_ENV_SESSION_ID_LEN];
 
     /* Wall clock awaits the RTC work (STATUS known-issue): sessions stamp
      * monotonically (tick) and correlate by session_id; the stamp format
@@ -238,7 +241,7 @@ static void capsrc_write_envelope(void)
     mr = f_mkdir(dir);
     if (mr != FR_OK && mr != FR_EXIST)
         M1_LOG_E(TAG, "envelope: mkdir %s failed (%d)", dir, (int)mr);
-    char sub[M1_ENV_DIR_MAX + 12];
+    static char sub[M1_ENV_DIR_MAX + 12];
     snprintf(sub, sizeof(sub), "%s/captures", dir);
     mr = f_mkdir(sub);
     if (mr != FR_OK && mr != FR_EXIST)
@@ -257,7 +260,7 @@ static void capsrc_write_envelope(void)
     }
     crc = m1_crc32c_final(crc);   /* standard CRC-32C, host-verifiable */
 
-    char params[64];
+    static char params[64];
     snprintf(params, sizeof(params), "chan:%u,frames:%lu",
              s_cap.channel, (unsigned long)s_cap.stats.frames);
 

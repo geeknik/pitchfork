@@ -90,6 +90,15 @@
   returning (no watchdog record was ever persisted across those resets
   — the watchdog-reset persist path itself is now under test).
 
+## [1.1.97] – 2026-10-31
+### Fixed
+- Deadline teardown crashes (1.1.83 bug class, live-pinned): sessions
+  ending by deadline crashed exactly at teardown in the pump task —
+  stats healthy at t+4s, device reset by t+6s with the port held open;
+  only RPC-initiated stops (USB-task context) survived. The pump task
+  grows to 4 KB of stack, every envelope-writer local is now static,
+  and the teardown path logs entry/exit for UART diagnosis.
+
 <!-- Changelog discipline: every FW_VERSION bump gets its entry in the same
      change (user directive 2026-10-30; see STATUS.md §7a). -->
 
