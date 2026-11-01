@@ -79,6 +79,17 @@
   mkdir-fail, 3 open-fail, 4 format-fail) so envelope outcomes are
   visible over RPC instead of buried in UART logs. m1ctl prints it.
 
+## [1.1.96] – 2026-10-31
+### Fixed
+- **Mid-capture device reboots root-caused to pump starvation**: on a
+  busy channel the capture pull loop never yielded (it only slept when
+  no data arrived), starving the watchdog-supervised tasks at its
+  priority → IWDG reset mid-session (the ~10 s USB dropouts, zeroed
+  stats, and absent envelopes of 1.1.93–95). The pump now yields every
+  iteration. Crash-record mkdir failures also log instead of silently
+  returning (no watchdog record was ever persisted across those resets
+  — the watchdog-reset persist path itself is now under test).
+
 <!-- Changelog discipline: every FW_VERSION bump gets its entry in the same
      change (user directive 2026-10-30; see STATUS.md §7a). -->
 

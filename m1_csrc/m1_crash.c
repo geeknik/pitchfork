@@ -136,7 +136,9 @@ void m1_crash_persist_if_pending(void)
         return;
     }
 
-    f_mkdir("0:/System");
+    FRESULT fm = f_mkdir("0:/System");
+    if (fm != FR_OK && fm != FR_EXIST)
+        M1_LOG_E(TAG, "mkdir 0:/System failed (%d)", (int)fm);
     FRESULT fr = f_mkdir(M1_CRASH_DIR);
     if (fr != FR_OK && fr != FR_EXIST) {
         M1_LOG_E(TAG, "cannot create %s (fr=%d)", M1_CRASH_DIR, (int)fr);

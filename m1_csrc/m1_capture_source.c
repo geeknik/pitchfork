@@ -108,6 +108,10 @@ static void capsrc_task(void *param)
     m1_capframe_meta_t meta;
 
     while (s_cap.active && xTaskGetTickCount() < s_cap.deadline_ms) {
+        vTaskDelay(pdMS_TO_TICKS(1));   /* ALWAYS yield: on a busy channel the
+                                         * pull loop must never starve the
+                                         * watchdog-supervised tasks (the
+                                         * 1.1.93-95 mid-capture reboots). */
         int8_t rssi = 0;
         uint8_t chan = 0;
         uint16_t n = m1_esp_client_monitor_read(s_frame, sizeof(s_frame),
