@@ -52,6 +52,13 @@ void m1_crash_boot_capture(void)
         return;
     s_pending.captured = true;
 
+    /* TAMP reads need the same bus clocks + DBP as writes; without them the
+     * fault magic may read as garbage and every record is silently missed
+     * (the four unrecorded faulting resets of 2026-10-31). */
+    RCC->APB3ENR |= RCC_APB3ENR_RTCAPBEN;
+    (void)RCC->APB3ENR;
+    PWR->DBPCR |= PWR_DBPCR_DBP;
+
     memset(&s_pending.info, 0, sizeof(s_pending.info));
     snprintf(s_pending.info.fw, sizeof(s_pending.info.fw), "%d.%d.%d.%d",
              FW_VERSION_MAJOR, FW_VERSION_MINOR, FW_VERSION_BUILD, FW_VERSION_RC);
@@ -80,6 +87,9 @@ void m1_crash_boot_capture(void)
     }
 }
 
+/* Diagnostic view of the recorder chain (RPC CRASH_STATUS): makes the
+ * boot-capture state, persist state, and live TAMP registers observable
+ * from the host — the missing instrument during the silent failures. */
 bool m1_crash_pending(void)
 {
     return s_pending.captured && !s_pending.persisted &&
@@ -207,4 +217,17 @@ void m1_crash_record_runtime(const m1_crash_info_t *ci)
     f_close(&f);
     M1_LOG_W(TAG, "runtime record: %s (kind=%d written=%lu)",
              path, (int)ci->kind, (unsigned long)written);
+}
+
+void m1_crash_get_diag(m1_crash_diag_t *out)
+{
+    if (!out)
+        return;
+    RCC->APB3ENR |= RCC_APB3ENR_RTCAPBEN;
+    (void)RCC->APB3ENR;
+    PWR->DBPCR |= PWR_DBPCR_DBP;
+    out->captured_kind = (uint8_t)s_pending.info.kind;
+    out->persisted     = s_pending.persisted ? 1 : 0;
+    out->bkp2_magic    = TAMP->BKP2R;
+    out->bkp14_seq     = TAMP->BKP14R;
 }

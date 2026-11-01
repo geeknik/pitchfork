@@ -104,6 +104,8 @@
 #define RPC_CMD_CAPTURE_STOP    0xA1   /* resp [rc:1] */
 #define RPC_CMD_CAPTURE_STATS   0xA2   /* resp [active:1][frames:4][dropped:4][bytes:4] */
 #define RPC_CMD_CAPTURE_STATS_RESP 0xA3
+#define RPC_CMD_CRASH_STATUS    0xA4   /* resp [kind:1][persisted:1][magic:4][seq:4] */
+#define RPC_CMD_CRASH_STATUS_RESP 0xA5
 
 /* ── GPIO / Expansion Header (0x70–0x7F) ── */
 #define RPC_CMD_GPIO_LIST       0x70    /* host->M1 — enumerate expansion pins */

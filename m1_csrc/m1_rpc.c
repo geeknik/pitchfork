@@ -27,7 +27,8 @@
 #ifdef M1_APP_RPC_ENABLE
 
 #include "m1_rpc.h"
-#include "m1_capture_source.h"  /* capture session ops (0x70-0x73) */
+#include "m1_capture_source.h"
+#include "m1_crash.h"  /* capture session ops (0x70-0x73) */
 #include "m1_usb_cdc_msc.h"
 #include "m1_log_debug.h"
 #include "m1_system.h"
@@ -349,6 +350,7 @@ static void rpc_handle_gpio_write(const S_RPC_Frame *f);
 static void rpc_handle_capture_start(const S_RPC_Frame *f);
 static void rpc_handle_capture_stop(const S_RPC_Frame *f);
 static void rpc_handle_capture_stats(const S_RPC_Frame *f);
+static void rpc_handle_crash_status(const S_RPC_Frame *f);
 static void m1_rpc_send_resp(uint8_t cmd, uint8_t seq,
                              const uint8_t *payload, uint16_t len);
 static void rpc_handle_gpio_read(const S_RPC_Frame *f);
@@ -596,6 +598,24 @@ void m1_rpc_send_frame(uint8_t cmd, uint8_t seq,
  * so a USB request is answered on USB even during a WiFi (mobile) session. */
 
 /* ---- WiFi capture sessions (m1_capture_source.c) ---- */
+
+static void rpc_handle_crash_status(const S_RPC_Frame *f)
+{
+    m1_crash_diag_t d;
+    m1_crash_get_diag(&d);
+    uint8_t buf[10];
+    buf[0] = d.captured_kind;
+    buf[1] = d.persisted;
+    buf[2] = (uint8_t)(d.bkp2_magic);
+    buf[3] = (uint8_t)(d.bkp2_magic >> 8);
+    buf[4] = (uint8_t)(d.bkp2_magic >> 16);
+    buf[5] = (uint8_t)(d.bkp2_magic >> 24);
+    buf[6] = (uint8_t)(d.bkp14_seq);
+    buf[7] = (uint8_t)(d.bkp14_seq >> 8);
+    buf[8] = (uint8_t)(d.bkp14_seq >> 16);
+    buf[9] = (uint8_t)(d.bkp14_seq >> 24);
+    m1_rpc_send_resp(RPC_CMD_CRASH_STATUS_RESP, f->seq, buf, sizeof(buf));
+}
 
 static void rpc_handle_capture_start(const S_RPC_Frame *f)
 {
@@ -950,6 +970,7 @@ static void rpc_dispatch_frame(const S_RPC_Frame *frame)
     case RPC_CMD_CAPTURE_START:   rpc_handle_capture_start(frame);     break;
     case RPC_CMD_CAPTURE_STOP:    rpc_handle_capture_stop(frame);      break;
     case RPC_CMD_CAPTURE_STATS:   rpc_handle_capture_stats(frame);     break;
+    case RPC_CMD_CRASH_STATUS:    rpc_handle_crash_status(frame);      break;
     case RPC_CMD_GPIO_READ:       rpc_handle_gpio_read(frame);       break;
     case RPC_CMD_GPIO_RELEASE:    rpc_handle_gpio_release(frame);    break;
     case RPC_CMD_GPIO_POWER:      rpc_handle_gpio_power(frame);      break;

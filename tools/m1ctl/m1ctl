@@ -121,6 +121,7 @@ def autodetect():
 PING, GET_DEVICE_INFO = 0x01, 0x03
 FILE_LIST, FILE_READ, FILE_READ_DATA = 0x30, 0x32, 0x33
 CAPTURE_START, CAPTURE_STOP, CAPTURE_STATS = 0xA0, 0xA1, 0xA2
+CRASH_STATUS = 0xA4
 
 # ── subcommands ──────────────────────────────────────────────────────────────
 def cmd_ping(m, _):
@@ -187,6 +188,19 @@ def cmd_ls(m, a):
         print(nm)
     return 0
 
+def cmd_crash(m, _):
+    p = m.rpc(CRASH_STATUS, wait=3.0)
+    if not p or len(p) < 10:
+        print("no crash status"); return 1
+    kind = p[0]; pers = p[1]
+    magic = int.from_bytes(p[2:6], "little"); seq = int.from_bytes(p[6:10], "little")
+    kinds = {0: "none", 1: "hardfault", 2: "watchdog", 3: "hung"}
+    print("boot captured :", kinds.get(kind, kind))
+    print("persisted     :", "yes" if pers else "no/pending")
+    print("TAMP magic    :", "%08X" % magic, "(live 0xFA017C0D = fault latched)" if magic == 0xFA017C0D else "")
+    print("fault seq     :", seq)
+    return 0
+
 def cmd_doctor(m, _):
     rc = cmd_ping(m, None)
     cmd_info(m, None)
@@ -210,7 +224,7 @@ def main():
     ap.add_argument("--device", help="serial device (default: autodetect)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name, fn in (("ping", cmd_ping), ("info", cmd_info), ("doctor", cmd_doctor),
-                     ("selftest", cmd_selftest)):
+                     ("selftest", cmd_selftest), ("crash", cmd_crash)):
         s = sub.add_parser(name); s.set_defaults(fn=fn)
     s = sub.add_parser("capture")
     s.add_argument("action", choices=["start", "stop", "stats"]); s.set_defaults(fn=cmd_capture)

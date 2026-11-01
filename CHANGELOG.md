@@ -99,6 +99,17 @@
   grows to 4 KB of stack, every envelope-writer local is now static,
   and the teardown path logs entry/exit for UART diagnosis.
 
+## [1.1.98] – 2026-10-31
+### Fixed
+- Crash recorder never persisted a record across four faulting resets:
+  backup-domain access now enables the RTC-APB and PWR bus clocks plus
+  DBP on BOTH ends (fault-time writes and boot-time reads) — TAMP reads
+  without DBP may return garbage, silently missing every fault magic.
+### Added
+- `CRASH_STATUS` RPC op (0xA4) + `m1ctl crash`: the recorder chain is
+  finally observable from the host — boot-captured kind, persist state,
+  live TAMP magic and fault sequence counter.
+
 <!-- Changelog discipline: every FW_VERSION bump gets its entry in the same
      change (user directive 2026-10-30; see STATUS.md §7a). -->
 

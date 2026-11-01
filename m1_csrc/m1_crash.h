@@ -39,6 +39,15 @@ void m1_crash_note_app(const char *app_name);
 /* True when the pending buffer holds an unrecorded fault/watchdog event. */
 bool m1_crash_pending(void);
 
+/* RPC CRASH_STATUS payload source (see m1_crash.c). */
+typedef struct {
+    uint8_t  captured_kind;
+    uint8_t  persisted;
+    uint32_t bkp2_magic;
+    uint32_t bkp14_seq;
+} m1_crash_diag_t;
+void m1_crash_get_diag(m1_crash_diag_t *out);
+
 /* Record a runtime-detected event (e.g. a contained hung app) into the same
  * bounded ring, independent of the boot-time capture. Any task may call it:
  * all buffers are static (boot-path stack rule). */

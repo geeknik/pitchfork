@@ -134,6 +134,10 @@ __attribute__((used)) void m1_fault_capture(uint32_t *frame)
 	volatile uint32_t hfsr = SCB->HFSR;
 	volatile uint32_t bfar = SCB->BFAR;
 
+	/* Backup-domain access needs its bus clocks and the DBP bit; the 1.1.83
+	 * incident proved TAMP writes can silently fail without them. */
+	RCC->APB3ENR |= RCC_APB3ENR_RTCAPBEN;
+	(void)RCC->APB3ENR;
 	PWR->DBPCR |= PWR_DBPCR_DBP;      /* enable backup-domain write */
 	TAMP->BKP2R = 0xFA017C0DU;        /* magic sentinel */
 	TAMP->BKP3R = frame[6];           /* stacked PC = faulting instruction */
