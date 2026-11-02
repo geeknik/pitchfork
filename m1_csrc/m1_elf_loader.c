@@ -570,12 +570,18 @@ static bool elf_apply_relocation(uint8_t *target_base, uint32_t offset,
             /* Compute new target: S + A - P */
             int32_t new_offset = (int32_t)sym_addr + existing_offset - (int32_t)patch_addr;
 
-            /* Check range: +/- 16MB for Thumb BL/B.W */
+            /* Check range: +/- 16MB for Thumb BL/B.W. On the STM32H573, flash
+             * (0x08xxxxxx) and SRAM (0x2xxxxxxx) are 384 MB apart — direct BL
+             * from a SRAM-loaded app to a flash function is ALWAYS out of
+             * range. Silently skipping produced apps that branch to garbage
+             * and hardfault. This is now a HARD ERROR: the app fails to load
+             * with a clear message instead of crashing the device. Apps must
+             * be compiled with -mlong-calls (LDR+BLX, no range limit). */
             if (new_offset > 0x00FFFFFF || new_offset < (int32_t)0xFF000000)
             {
-                M1_LOG_W(TAG, "THM_CALL out of range: offset=%ld", (long)new_offset);
-                /* Out of range — cannot patch. Skip without failing. */
-                break;
+                M1_LOG_E(TAG, "THM_CALL out of range (%ld) — compile with -mlong-calls",
+                         (long)new_offset);
+                return false;
             }
 
             /* Re-encode */

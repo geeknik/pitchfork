@@ -69,9 +69,9 @@ typedef struct {
 #define FW_IMAGE_CRC_SIZE				4 // 4 bytes = 32 bits
 
 #define FW_VERSION_MAJOR   			1
-#define FW_VERSION_MINOR   			1
-#define FW_VERSION_BUILD   			98
-#define FW_VERSION_RC   			1
+#define FW_VERSION_MINOR   			2
+#define FW_VERSION_BUILD   			0
+#define FW_VERSION_RC   			0
 
 /* Recovery FW: its own independent "<major>.<minor>" line, separate from the
  * working FW's n.n.n.n version. (Only used when M1_RECOVERY_BUILD is set by the

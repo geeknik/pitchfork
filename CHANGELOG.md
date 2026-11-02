@@ -110,6 +110,25 @@
   finally observable from the host — boot-captured kind, persist state,
   live TAMP magic and fault sequence counter.
 
+## [1.2.0.0] – 2026-11-01
+### Milestone: first .m1app running on real hardware
+- "Hello from .m1app!" proves the complete app runtime: ELF loading,
+  symbol resolution, umbrella APIs, display lease, page-buffer drawing,
+  supervision heartbeats, clean task lifecycle.
+### Added
+- App SDK (`tools/app-build/m1app-sdk.h`) + build toolchain
+  (`Makefile.app`) + first app (`apps/hello/hello.m1app`)
+- CDC pacing fix: FILE_READ inter-chunk delay 2ms→5ms
+### Fixed
+- **Loader hardening**: out-of-range THM_CALL relocations are now a
+  hard load error (were silently skipped, producing apps that branch
+  to garbage and hardfault). Apps must use `-mlong-calls`.
+### Architectural constraints (discovered the hard way)
+1. `-mlong-calls` is mandatory for .m1app: Cortex-M33 BL has ±16 MB
+   range; STM32H573 flash/SRAM are 384 MB apart.
+2. `m1_u8g2` is not in the export table — use `m1app_get_u8g2()`.
+3. `u8g2_NextPage` is not exported — use `m1app_display_flush()`.
+
 <!-- Changelog discipline: every FW_VERSION bump gets its entry in the same
      change (user directive 2026-10-30; see STATUS.md §7a). -->
 
