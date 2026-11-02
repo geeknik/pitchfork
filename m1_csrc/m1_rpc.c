@@ -2021,8 +2021,9 @@ static void rpc_handle_file_read(const S_RPC_Frame *f)
         if (bytes_read < RPC_FILE_CHUNK_SIZE)
             break;
 
-        /* Small delay to avoid flooding USB */
-        osDelay(2);
+        /* CDC pacing: 5ms prevents the first data frame from racing
+         * the host's request processing (261KB pulls corrupted at 2ms). */
+        osDelay(5);
     }
 
     f_close(&file);
