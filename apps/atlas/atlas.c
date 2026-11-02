@@ -286,6 +286,13 @@ int32_t app_main(void *param)
     do_scan();
     write_envelopes();
 
+    /* Drain stale button events from during the scan (BACK pressed while
+     * scanning gets queued; without this, the first game_poll_button()
+     * returns BACK and exits immediately, then the menu sees more stale
+     * events and relaunches the app). */
+    while (game_poll_button(10) != GAME_BTN_NONE)
+        m1app_delay(10);
+
     while (1) {
         draw_list();
         m1_sys_call(M1_SYS_OP_HEARTBEAT, 0);
@@ -294,6 +301,9 @@ int32_t app_main(void *param)
         case GAME_BTN_OK:
             do_scan();
             write_envelopes();
+            /* Drain events from during the rescan */
+            while (game_poll_button(10) != GAME_BTN_NONE)
+                m1app_delay(10);
             break;
         case GAME_BTN_UP:
             if (scroll_top > 0) scroll_top--;
