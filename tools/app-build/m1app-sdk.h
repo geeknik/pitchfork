@@ -34,9 +34,30 @@ extern void m1app_delay(uint32_t ms);
 extern uint32_t m1app_get_tick(void);
 #include "u8g2.h"
 extern u8g2_t *m1app_get_u8g2(void);  /* m1_u8g2 is NOT exported — use this getter */
-extern uint8_t game_poll_button(void);
 extern uint8_t m1app_display_flush(void);
 extern void m1_u8g2_firstpage(void);
 extern uint8_t m1_u8g2_nextpage(void);
+
+/* ---- Input (game_poll_button return values) ---- */
+typedef enum {
+    GAME_BTN_NONE = 0,
+    GAME_BTN_UP,
+    GAME_BTN_DOWN,
+    GAME_BTN_LEFT,
+    GAME_BTN_RIGHT,
+    GAME_BTN_OK,
+    GAME_BTN_BACK,
+} game_button_t;
+extern game_button_t game_poll_button(uint32_t timeout_ms);
+
+/* ---- ESP32 scan (directly exported; brain must be initialized) ---- */
+extern int m1_esp_client_wifi_scan(uint8_t *buf, uint16_t buf_size);
+extern int m1_esp_client_ble_scan(uint8_t *buf, uint16_t buf_size, uint8_t duration_sec);
+extern bool get_esp32_main_init_status(void);
+
+/* ---- String functions (exported) ---- */
+#include <string.h>
+extern int snprintf(char *str, size_t size, const char *format, ...);
+
 int32_t app_main(void *param);
 #endif
