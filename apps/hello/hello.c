@@ -25,7 +25,7 @@ int32_t app_main(void *param)
     int32_t api = m1_sys_call(M1_SYS_OP_API_LEVEL, 0);
     int32_t heap = m1_sys_call(M1_SYS_OP_HEAP_FREE, 0);
 
-    u8g2_t *u = &m1_u8g2;
+    u8g2_t *u = m1app_get_u8g2();
     u8g2_SetFont(u, u8g2_font_6x10_tr);
 
     for (int frame = 0; frame < 20; frame++) {

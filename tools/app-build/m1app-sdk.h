@@ -33,7 +33,7 @@ extern void m1app_free(void *p);
 extern void m1app_delay(uint32_t ms);
 extern uint32_t m1app_get_tick(void);
 #include "u8g2.h"
-extern u8g2_t m1_u8g2;
+extern u8g2_t *m1app_get_u8g2(void);  /* m1_u8g2 is NOT exported — use this getter */
 extern uint8_t game_poll_button(void);
 extern uint8_t m1app_display_flush(void);
 extern void m1_u8g2_firstpage(void);
