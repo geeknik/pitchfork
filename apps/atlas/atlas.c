@@ -274,24 +274,21 @@ int32_t app_main(void *param)
     do_scan();
     write_envelopes();
 
-    /* Non-blocking button loop: game_poll_button internally resets the
-     * main queue on BACK, so blocking waits + drain loops interact badly.
-     * Instead: delay for timing, poll with timeout=0 for input. */
-    while (1) {
+    /* Show results for 15 seconds, then auto-exit. Accept ANY button
+     * press as exit (game_poll_button's BACK detection is unreliable from
+     * app context — two-queue sync issue under investigation). */
+    uint32_t start = m1app_get_tick();
+    while (m1app_get_tick() - start < 15000) {
         draw_list();
         m1_sys_call(M1_SYS_OP_HEARTBEAT, 0);
-        m1app_delay(100);
+        m1app_delay(200);
 
         game_button_t btn = game_poll_button(20);
-        if (btn == GAME_BTN_BACK)
-            return 0;
-        if (btn == GAME_BTN_OK) {
-            do_scan();
-            write_envelopes();
-            while (game_poll_button(20) != GAME_BTN_NONE) { }
-        }
-        if (btn == GAME_BTN_UP && scroll_top > 0) scroll_top--;
-        if (btn == GAME_BTN_DOWN && scroll_top < dev_count - LIST_ROWS) scroll_top++;
+        if (btn != GAME_BTN_NONE)
+            return 0;  /* ANY button exits */
+
+        if (m1_sys_call(M1_SYS_OP_CANCEL_POLL, 0))
+            return 0;  /* kernel asked us to exit */
     }
     return 0;
 }
