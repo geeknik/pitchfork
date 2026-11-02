@@ -8,12 +8,12 @@
 #include <string.h>
 
 /* Raw FatFs (exported, not sandboxed) */
-extern int f_mkdir(const char *path);
-extern int f_open(void *fp, const char *path, unsigned char mode);
-extern int f_close(void *fp);
-extern int f_write(void *fp, const void *buf, unsigned int btw, unsigned int *bw);
-extern int f_sync(void *fp);
-extern unsigned int xTaskGetTickCount(void);
+
+
+
+
+
+
 
 #define MAX_DEVICES 30
 #define SCAN_BUF_SIZE 1024
@@ -143,33 +143,33 @@ static void do_scan(void)
     scan_ble();
 }
 
-/* Write observations as Capture Envelopes to /Sessions/<id>/captures/ */
+/* Write observations via the sandboxed storage umbrella (safe FIL
+ * management; the raw f_open path crashed — a 600-byte byte array is not
+ * a FIL struct and sizeof(FIL) with exFAT exceeds it). Sessions live
+ * under /AppData/sessions/ (the umbrella's sandbox root). */
+typedef struct {
+    uint16_t size; uint8_t version; uint8_t flags;
+    char path[64]; uint16_t datalen; uint8_t data[256];
+} __attribute__((packed)) sto_write_req_t;
+
 static void write_envelopes(void)
 {
     if (dev_count == 0) return;
 
-    uint32_t tick = xTaskGetTickCount();
+    uint32_t tick = m1app_get_tick();
     make_session_id(tick, dev_count);
-    snprintf(session_dir, sizeof(session_dir),
-             "0:/Sessions/a%lu-%s", (unsigned long)tick, session_id);
 
-    f_mkdir("0:/Sessions");
-    f_mkdir(session_dir);
+    /* Write each observation as one envelope file (atomic replace) */
+    static sto_write_req_t w;
+    w.size = sizeof(w);
+    w.version = 1;
+    w.flags = 0;
 
-    char cap_dir[56];
-    snprintf(cap_dir, sizeof(cap_dir), "%s/captures", session_dir);
-    f_mkdir(cap_dir);
-
-    /* Write one envelope file per observation */
     for (int i = 0; i < dev_count; i++) {
         device_t *d = &devices[i];
-        char path[80];
-        snprintf(path, sizeof(path), "%s/captures/%03d.m1env",
-                 session_dir, i + 1);
-
-        /* Build envelope text (same key=value format as kernel m1_env_format) */
-        char env[512];
-        int n = snprintf(env, sizeof(env),
+        snprintf(w.path, sizeof(w.path), "sessions/%s_%03d.m1env",
+                 session_id, i + 1);
+        int n = snprintf((char*)w.data, sizeof(w.data),
             "envelope_version=1\n"
             "record_id=%d\n"
             "session_id=%s\n"
@@ -183,26 +183,14 @@ static void write_envelopes(void)
             "parent_record_id=-1\n"
             "operator_annotation=-\n"
             "integrity_hash=-\n",
-            i + 1, session_id,
-            (unsigned long)tick,
+            i + 1, session_id, (unsigned long)tick,
             d->domain == 0 ? "wifi" : "ble",
             d->rssi, d->detail,
             d->domain == 0 ? "wifi" : "ble",
             d->name);
-        if (n <= 0 || n >= (int)sizeof(env)) continue;
-
-        /* Write via raw FatFs (exported; /Sessions is outside the sandbox) */
-        static char fobj[64]; /* static FIL substitute — f_open needs a FIL struct */
-        /* Use a minimal FIL: the actual FIL struct is larger, but we allocate
-         * enough for FatFs to work. This is safe because FatFs uses the
-         * struct internally and we only need it for the duration of the write. */
-        static uint8_t fil_buf[600]; /* > sizeof(FIL) with LFN */
-        unsigned int written = 0;
-        int fr = f_open(fil_buf, path, 0x09 /* FA_WRITE | FA_CREATE_ALWAYS */);
-        if (fr != 0) continue;
-        f_write(fil_buf, env, n, &written);
-        f_sync(fil_buf);
-        f_close(fil_buf);
+        if (n <= 0 || n >= (int)sizeof(w.data)) continue;
+        w.datalen = n;
+        m1_storage_call(M1_STO_OP_WRITE, &w, sizeof(w), 0, 0);
     }
 }
 
