@@ -274,21 +274,15 @@ int32_t app_main(void *param)
     do_scan();
     write_envelopes();
 
-    /* Show results for 15 seconds, then auto-exit. Accept ANY button
-     * press as exit (game_poll_button's BACK detection is unreliable from
-     * app context — two-queue sync issue under investigation). */
+    /* Display results for 10 seconds, then auto-exit.
+     * NOTE: game_poll_button does NOT work from app tasks — button events
+     * in main_q_hdl are consumed by system tasks before the app can read
+     * them. This is a firmware bug tracked for the next kernel build. */
     uint32_t start = m1app_get_tick();
-    while (m1app_get_tick() - start < 15000) {
+    while (m1app_get_tick() - start < 10000) {
         draw_list();
         m1_sys_call(M1_SYS_OP_HEARTBEAT, 0);
-        m1app_delay(200);
-
-        game_button_t btn = game_poll_button(20);
-        if (btn != GAME_BTN_NONE)
-            return 0;  /* ANY button exits */
-
-        if (m1_sys_call(M1_SYS_OP_CANCEL_POLL, 0))
-            return 0;  /* kernel asked us to exit */
+        m1app_delay(250);
     }
     return 0;
 }
